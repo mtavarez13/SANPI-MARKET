@@ -1,0 +1,47 @@
+import { RDProvinceInfo } from '../types';
+
+export const RD_PROVINCES: RDProvinceInfo[] = [
+  { id: 'DN', name: 'Distrito Nacional', region: 'Metro', capital: 'Santo Domingo', coordinates: { x: 55, y: 70 } },
+  { id: 'SD', name: 'Santo Domingo', region: 'Metro', capital: 'Santo Domingo Este', coordinates: { x: 57, y: 68 } },
+  { id: 'STI', name: 'Santiago', region: 'Cibao', capital: 'Santiago de los Caballeros', coordinates: { x: 38, y: 35 } },
+  { id: 'ALT', name: 'La Altagracia', region: 'Este', capital: 'Higüey', coordinates: { x: 90, y: 60 } },
+  { id: 'PP', name: 'Puerto Plata', region: 'Cibao', capital: 'San Felipe de Puerto Plata', coordinates: { x: 37, y: 18 } },
+  { id: 'SC', name: 'San Cristóbal', region: 'Sur', capital: 'San Cristóbal', coordinates: { x: 48, y: 72 } },
+  { id: 'VEG', name: 'La Vega', region: 'Cibao', capital: 'Concepción de La Vega', coordinates: { x: 45, y: 42 } },
+  { id: 'SPM', name: 'San Pedro de Macorís', region: 'Este', capital: 'San Pedro de Macorís', coordinates: { x: 72, y: 68 } },
+  { id: 'DUA', name: 'Duarte', region: 'Cibao', capital: 'San Francisco de Macorís', coordinates: { x: 54, y: 35 } },
+  { id: 'ESP', name: 'Espaillat', region: 'Cibao', capital: 'Moca', coordinates: { x: 44, y: 28 } },
+  { id: 'BAR', name: 'Barahona', region: 'Sur', capital: 'Santa Cruz de Barahona', coordinates: { x: 22, y: 82 } },
+  { id: 'AZU', name: 'Azua', region: 'Sur', capital: 'Azua de Compostela', coordinates: { x: 35, y: 68 } },
+  { id: 'LR', name: 'La Romana', region: 'Este', capital: 'La Romana', coordinates: { x: 81, y: 65 } },
+  { id: 'MON', name: 'Monseñor Nouel', region: 'Cibao', capital: 'Bonao', coordinates: { x: 46, y: 52 } },
+  { id: 'PER', name: 'Peravia', region: 'Sur', capital: 'Baní', coordinates: { x: 44, y: 78 } },
+  { id: 'SRA', name: 'Sánchez Ramírez', region: 'Cibao', capital: 'Cotuí', coordinates: { x: 53, y: 45 } },
+  { id: 'MP', name: 'Monte Plata', region: 'Metro', capital: 'Monte Plata', coordinates: { x: 58, y: 58 } },
+  { id: 'MTS', name: 'María Trinidad Sánchez', region: 'Cibao', capital: 'Nagua', coordinates: { x: 62, y: 32 } },
+  { id: 'VAL', name: 'Valverde', region: 'Cibao', capital: 'Mao', coordinates: { x: 28, y: 32 } },
+  { id: 'SJU', name: 'San Juan', region: 'Sur', capital: 'San Juan de la Maguana', coordinates: { x: 25, y: 56 } },
+  { id: 'HM', name: 'Hato Mayor', region: 'Este', capital: 'Hato Mayor del Rey', coordinates: { x: 70, y: 54 } },
+  { id: 'SAM', name: 'Samaná', region: 'Cibao', capital: 'Santa Bárbara de Samaná', coordinates: { x: 75, y: 34 } },
+  { id: 'HMIR', name: 'Hermanas Mirabal', region: 'Cibao', capital: 'Salcedo', coordinates: { x: 48, y: 32 } },
+  { id: 'MCR', name: 'Monte Cristi', region: 'Cibao', capital: 'San Fernando de Monte Cristi', coordinates: { x: 18, y: 20 } },
+  { id: 'DAJ', name: 'Dajabón', region: 'Cibao', capital: 'Dajabón', coordinates: { x: 14, y: 35 } },
+  { id: 'SEI', name: 'El Seibo', region: 'Este', capital: 'Santa Cruz de El Seibo', coordinates: { x: 78, y: 53 } },
+  { id: 'BAO', name: 'Baoruco', region: 'Sur', capital: 'Neyba', coordinates: { x: 20, y: 72 } },
+  { id: 'SR', name: 'Santiago Rodríguez', region: 'Cibao', capital: 'Sabaneta', coordinates: { x: 24, y: 42 } },
+  { id: 'EPI', name: 'Elías Piña', region: 'Sur', capital: 'Comendador', coordinates: { x: 14, y: 55 } },
+  { id: 'IND', name: 'Independencia', region: 'Sur', capital: 'Jimaní', coordinates: { x: 12, y: 75 } },
+  { id: 'PED', name: 'Pedernales', region: 'Sur', capital: 'Pedernales', coordinates: { x: 15, y: 92 } },
+  { id: 'OCO', name: 'San José de Ocoa', region: 'Sur', capital: 'San José de Ocoa', coordinates: { x: 41, y: 62 } },
+];
+
+export const CATEGORIES = [
+  'Todas',
+  'Tecnología & Gadgets',
+  'Moda & Calzado',
+  'Hogar & Cocina',
+  'Repuestos & Autopartes',
+  'Belleza & Cuidado Personal',
+  'Deportes & Salud',
+  'Juguetes & Entretenimiento'
+];

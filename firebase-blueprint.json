@@ -1,0 +1,180 @@
+{
+  "entities": {
+    "Store": {
+      "title": "Store",
+      "description": "Partner store registered in Sanpi Marketplace",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "slug": { "type": "string" },
+        "logoUrl": { "type": "string" },
+        "coverImageUrl": { "type": "string" },
+        "isMarketplace": { "type": "boolean" },
+        "marketplaceCommission": { "type": "number" },
+        "ownerEmail": { "type": "string" },
+        "ownerName": { "type": "string" },
+        "phone": { "type": "string" },
+        "description": { "type": "string" },
+        "province": { "type": "string" },
+        "status": { "type": "string", "enum": ["approved", "pending", "rejected"] },
+        "plan": { "type": "string", "enum": ["basic", "pro", "elite"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "slug", "ownerEmail", "status", "plan"]
+    },
+    "Article": {
+      "title": "Article",
+      "description": "Product listed by a partner store",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "storeId": { "type": "string" },
+        "storeName": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string" },
+        "price": { "type": "number" },
+        "image": { "type": "string" },
+        "gallery": { "type": "array" },
+        "status": { "type": "string", "enum": ["aprobado", "pendiente"] },
+        "isPublic": { "type": "boolean" },
+        "isDropshipping": { "type": "boolean" },
+        "views": { "type": "number" },
+        "rating": { "type": "number" },
+        "stock": { "type": "number" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "storeId", "name", "price", "status"]
+    },
+    "Delivery": {
+      "title": "Delivery",
+      "description": "Shipping guide and COD order delivery tracking",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "trackingNumber": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerPhone": { "type": "string" },
+        "province": { "type": "string" },
+        "city": { "type": "string" },
+        "address": { "type": "string" },
+        "notes": { "type": "string" },
+        "totalCodAmount": { "type": "number" },
+        "totalToCollect": { "type": "number" },
+        "basePrice": { "type": "number" },
+        "shippingFee": { "type": "number" },
+        "storeId": { "type": "string" },
+        "articleId": { "type": "string" },
+        "articleName": { "type": "string" },
+        "status": { "type": "string", "enum": ["pendiente", "en_transito", "entregado", "cancelado"] },
+        "deliveryPersonId": { "type": "string" },
+        "deliveryPersonName": { "type": "string" },
+        "deliveryPersonPhone": { "type": "string" },
+        "isMarketplaceOrder": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "history": { "type": "array" }
+      },
+      "required": ["id", "trackingNumber", "customerName", "customerPhone", "province", "city", "address", "totalCodAmount", "status"]
+    },
+    "User": {
+      "title": "User",
+      "description": "User profile with courier GPS tracking location",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["delivery", "merchant", "admin", "customer"] },
+        "phone": { "type": "string" },
+        "lastLocation": { "type": "object" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "name", "role"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Financial ledger record of marketplace sale and commission",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "trackingNumber": { "type": "string" },
+        "storeId": { "type": "string" },
+        "articleId": { "type": "string" },
+        "productName": { "type": "string" },
+        "quantity": { "type": "number" },
+        "basePrice": { "type": "number" },
+        "shippingFee": { "type": "number" },
+        "total": { "type": "number" },
+        "commissionRate": { "type": "number" },
+        "commissionAmount": { "type": "number" },
+        "paymentMethod": { "type": "string" },
+        "status": { "type": "string", "enum": ["pendiente", "entregado", "cancelado"] },
+        "isMarketplaceOrder": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "trackingNumber", "storeId", "total", "commissionAmount", "status"]
+    },
+    "MarketplaceSubscription": {
+      "title": "MarketplaceSubscription",
+      "description": "Partner store membership subscription request",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "storeName": { "type": "string" },
+        "ownerName": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "province": { "type": "string" },
+        "plan": { "type": "string", "enum": ["basic", "pro", "elite"] },
+        "monthlyFee": { "type": "number" },
+        "status": { "type": "string", "enum": ["pendiente", "aprobado", "rechazado"] },
+        "requestedAt": { "type": "string" }
+      },
+      "required": ["id", "storeName", "ownerName", "email", "phone", "plan", "status"]
+    },
+    "Expense": {
+      "title": "Expense",
+      "description": "Operating expense record for Sanpi platform",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "category": { "type": "string", "enum": ["logistica", "marketing", "servidores", "nomina", "otros"] },
+        "amount": { "type": "number" },
+        "date": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "title", "category", "amount", "date"]
+    }
+  },
+  "firestore": {
+    "stores": {
+      "schema": { "$ref": "#/entities/Store" },
+      "description": "Collection of partner stores"
+    },
+    "articles": {
+      "schema": { "$ref": "#/entities/Article" },
+      "description": "Collection of marketplace products"
+    },
+    "deliveries": {
+      "schema": { "$ref": "#/entities/Delivery" },
+      "description": "Collection of COD shipping guides and deliveries"
+    },
+    "transactions": {
+      "schema": { "$ref": "#/entities/Transaction" },
+      "description": "Collection of marketplace sale financial transactions"
+    },
+    "marketplace_subscriptions": {
+      "schema": { "$ref": "#/entities/MarketplaceSubscription" },
+      "description": "Collection of partner onboarding subscription applications"
+    },
+    "expenses": {
+      "schema": { "$ref": "#/entities/Expense" },
+      "description": "Collection of platform operational expenses"
+    },
+    "users": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Collection of courier and user profiles with GPS location"
+    }
+  }
+}

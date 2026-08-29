@@ -1,0 +1,6 @@
+{
+  "name": "Sanpi Market",
+  "description": "Plataforma de Marketplace y Dropshipping para República Dominicana con flete fijo RD$ 350 COD, gestión de socios, mapa de entregas y finanzas.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
