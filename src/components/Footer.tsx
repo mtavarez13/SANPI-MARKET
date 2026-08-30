@@ -1,14 +1,15 @@
 import React from 'react';
-import { Truck, ShieldCheck, ShoppingBag, Store, Sparkles, MapPin, Mail, Phone, ExternalLink, MessageCircle, Code2 } from 'lucide-react';
+import { Truck, ShieldCheck, ShoppingBag, Store, Sparkles, MapPin, Mail, Phone, ExternalLink, MessageCircle, Code2, Download, Flame } from 'lucide-react';
 import { SiteThemeConfig } from '../types';
 
 interface FooterProps {
   onNav: (view: 'explore' | 'catalogs' | 'dropship' | 'track' | 'partner' | 'admin') => void;
   onOpenAuth: () => void;
+  onOpenDownloadZip?: () => void;
   config?: SiteThemeConfig;
 }
 
-export const Footer: React.FC<FooterProps> = ({ onNav, onOpenAuth, config }) => {
+export const Footer: React.FC<FooterProps> = ({ onNav, onOpenAuth, onOpenDownloadZip, config }) => {
   const siteName = config?.siteName || 'SANPI';
   const siteTagline = config?.siteTagline || 'MARKET';
   const siteSlogan = config?.siteSlogan || 'La Magia de comprar Online';
@@ -117,6 +118,22 @@ export const Footer: React.FC<FooterProps> = ({ onNav, onOpenAuth, config }) => 
               <li>
                 <button onClick={onOpenAuth} className="hover:text-slate-900 transition-colors cursor-pointer">
                   Acceso a Panel de Usuario
+                </button>
+              </li>
+              <li>
+                <button
+                  onClick={onOpenDownloadZip ? onOpenDownloadZip : () => {
+                    const link = document.createElement('a');
+                    link.href = '/api/download-zip';
+                    link.setAttribute('download', 'sanpi-market-firebase.zip');
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                  }}
+                  className="inline-flex items-center gap-1 text-amber-700 hover:text-amber-800 font-bold transition-colors cursor-pointer"
+                >
+                  <Flame className="w-3 h-3 text-orange-500" />
+                  <span>Descargar ZIP (Firebase)</span>
                 </button>
               </li>
             </ul>
