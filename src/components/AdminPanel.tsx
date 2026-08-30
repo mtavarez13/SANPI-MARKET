@@ -82,8 +82,6 @@ import {
 import { speakSanpi } from '../lib/audioTTS';
 import { AdminPlansManager } from './AdminPlansManager';
 import { AdminBrandingManager } from './AdminBrandingManager';
-import { DownloadZipModal } from './DownloadZipModal';
-import { Flame } from 'lucide-react';
 
 interface AdminPanelProps {
   stores: Store[];
@@ -117,7 +115,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [masterUnlocked, setMasterUnlocked] = useState<boolean>(isMartinSuperAdmin);
   const [keyInput, setKeyInput] = useState<string>('');
   const [showKeyModal, setShowKeyModal] = useState<boolean>(false);
-  const [showDownloadZipModal, setShowDownloadZipModal] = useState<boolean>(false);
 
   // Filters and Search
   const [subFilter, setSubFilter] = useState<'all' | 'pendiente' | 'aprobado' | 'rechazado'>('all');
@@ -843,19 +840,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             {/* Export PDF Button */}
             <button
               onClick={() => generateSanpiExecutivePdfReport()}
-              className="bg-purple-600 hover:bg-purple-500 text-white font-extrabold px-4 py-2.5 rounded-2xl text-xs transition-all shadow-lg shadow-purple-600/40 flex items-center gap-2 border border-purple-300/30 active:scale-95"
+              className="bg-purple-600 hover:bg-purple-500 text-white font-extrabold px-5 py-2.5 rounded-2xl text-xs transition-all shadow-lg shadow-purple-600/40 flex items-center gap-2 border border-purple-300/30 active:scale-95"
             >
               <FileText className="w-4 h-4 text-yellow-300" />
-              Reporte PDF
-            </button>
-
-            {/* Download Project ZIP for Firebase Button */}
-            <button
-              onClick={() => setShowDownloadZipModal(true)}
-              className="bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white font-extrabold px-4 py-2.5 rounded-2xl text-xs transition-all shadow-lg shadow-orange-950/40 flex items-center gap-2 border border-orange-300/30 active:scale-95"
-            >
-              <Flame className="w-4 h-4 text-white" />
-              <span>Descargar ZIP (Firebase)</span>
+              Exportar Reporte Ejecutivo PDF
             </button>
           </div>
         </div>
@@ -4479,12 +4467,6 @@ echo $res;`}
           </div>
         </div>
       )}
-
-      {/* DOWNLOAD ZIP MODAL FOR FIREBASE DEPLOY */}
-      <DownloadZipModal
-        isOpen={showDownloadZipModal}
-        onClose={() => setShowDownloadZipModal(false)}
-      />
 
     </div>
   );

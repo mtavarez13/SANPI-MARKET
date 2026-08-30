@@ -1,7 +1,5 @@
 import express from 'express';
 import path from 'path';
-import fs from 'fs';
-import JSZip from 'jszip';
 import { createServer as createViteServer } from 'vite';
 
 // Prevent process crashes caused by broken pipes (EPIPE) on stdout/stderr
@@ -724,112 +722,6 @@ async function startServer() {
         }
       }
     });
-  });
-
-  // 6. DOWNLOAD PROJECT ZIP FOR FIREBASE DEPLOYMENT (In-Memory JSZip Archive)
-  function getAllProjectFiles(dir: string, baseDir: string = dir): { relativePath: string; fullPath: string }[] {
-    const IGNORED_NAMES = new Set([
-      'node_modules',
-      'dist',
-      '.git',
-      '.cache',
-      'bun.lock',
-      'bun.lockb',
-      '.DS_Store',
-      'package-lock.json.bak'
-    ]);
-
-    let results: { relativePath: string; fullPath: string }[] = [];
-    try {
-      const entries = fs.readdirSync(dir, { withFileTypes: true });
-
-      for (const entry of entries) {
-        if (IGNORED_NAMES.has(entry.name)) continue;
-        if (entry.name.endsWith('.zip')) continue;
-
-        const fullPath = path.join(dir, entry.name);
-        const relativePath = path.relative(baseDir, fullPath).replace(/\\/g, '/');
-
-        if (entry.isDirectory()) {
-          results = results.concat(getAllProjectFiles(fullPath, baseDir));
-        } else if (entry.isFile()) {
-          results.push({ relativePath, fullPath });
-        }
-      }
-    } catch (err) {
-      console.warn(`Error reading directory ${dir}:`, err);
-    }
-
-    return results;
-  }
-
-  const handleDownloadZip = async (req: express.Request, res: express.Response) => {
-    try {
-      const rootDir = process.cwd();
-      const files = getAllProjectFiles(rootDir, rootDir);
-      const zip = new JSZip();
-
-      for (const file of files) {
-        try {
-          const content = fs.readFileSync(file.fullPath);
-          zip.file(file.relativePath, content);
-        } catch (err) {
-          console.warn(`Could not read file ${file.relativePath}:`, err);
-        }
-      }
-
-      const zipBuffer = await zip.generateAsync({
-        type: 'nodebuffer',
-        compression: 'DEFLATE',
-        compressionOptions: { level: 6 }
-      });
-
-      const zipFileName = `sanpi-market-firebase-${new Date().toISOString().slice(0, 10)}.zip`;
-
-      res.setHeader('Content-Type', 'application/zip');
-      res.setHeader('Content-Disposition', `attachment; filename="${zipFileName}"`);
-      res.setHeader('Content-Length', zipBuffer.length.toString());
-      res.setHeader('Cache-Control', 'no-cache');
-      res.send(zipBuffer);
-    } catch (err: any) {
-      console.error('Zip generation caught error:', err);
-      if (!res.headersSent) {
-        res.status(500).json({ error: 'Failed to generate ZIP archive', message: err?.message });
-      }
-    }
-  };
-
-  app.get('/api/download-zip', handleDownloadZip);
-  app.get('/api/export-project-zip', handleDownloadZip);
-  app.get('/api/export-zip', handleDownloadZip);
-
-  // Fallback endpoint: Return files in JSON for browser-side JSZip assembly if iframe blocks raw download
-  app.get('/api/project-files-bundle', (req, res) => {
-    try {
-      const rootDir = process.cwd();
-      const files = getAllProjectFiles(rootDir, rootDir);
-      const payload: { path: string; content: string; isBinary: boolean }[] = [];
-
-      for (const file of files) {
-        const ext = path.extname(file.relativePath).toLowerCase();
-        const isBinary = ['.png', '.jpg', '.jpeg', '.webp', '.ico', '.woff', '.woff2', '.ttf', '.eot', '.mp4', '.webm'].includes(ext);
-        
-        try {
-          const buffer = fs.readFileSync(file.fullPath);
-          payload.push({
-            path: file.relativePath,
-            content: isBinary ? buffer.toString('base64') : buffer.toString('utf8'),
-            isBinary
-          });
-        } catch (err) {
-          console.warn(`Skipping unreadable file ${file.relativePath}:`, err);
-        }
-      }
-
-      res.json({ success: true, count: payload.length, files: payload });
-    } catch (err: any) {
-      res.status(500).json({ error: 'Failed to bundle project files', message: err?.message });
-    }
   });
 
   // Vite middleware in development

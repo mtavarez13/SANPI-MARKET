@@ -16,7 +16,6 @@ import { LandingPageView } from './components/LandingPageView';
 import { LandingPageGeneratorModal } from './components/LandingPageGeneratorModal';
 import { GoogleAuthModal } from './components/GoogleAuthModal';
 import { WelcomeEmailModal } from './components/WelcomeEmailModal';
-import { DownloadZipModal } from './components/DownloadZipModal';
 import { SachaPackProductBanner } from './components/SachaPackProductBanner';
 import { Footer } from './components/Footer';
 import { FloatingWhatsApp } from './components/FloatingWhatsApp';
@@ -47,7 +46,6 @@ export default function App() {
   const [selectedPlanForRegistration, setSelectedPlanForRegistration] = useState<StorePlan>('pro');
   const [generatorModalOpen, setGeneratorModalOpen] = useState(false);
   const [generatorPreselectedArticle, setGeneratorPreselectedArticle] = useState<Article | null>(null);
-  const [downloadZipModalOpen, setDownloadZipModalOpen] = useState(false);
 
   // Manager state subscription
   const [stores, setStores] = useState(sanpiManager.stores);
@@ -543,7 +541,6 @@ export default function App() {
             setAuthDefaultRole('dropshipper');
             setAuthModalOpen(true);
           }}
-          onOpenDownloadZip={() => setDownloadZipModalOpen(true)}
           config={siteConfig}
         />
       )}
@@ -552,12 +549,6 @@ export default function App() {
       <FloatingWhatsApp
         phoneNumber="18096766690"
         defaultMessage="Hola Sanpi Market, necesito asistencia con una orden o servicio."
-      />
-
-      {/* Download Zip Modal for Firebase */}
-      <DownloadZipModal
-        isOpen={downloadZipModalOpen}
-        onClose={() => setDownloadZipModalOpen(false)}
       />
 
     </div>
