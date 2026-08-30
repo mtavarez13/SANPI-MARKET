@@ -24,7 +24,7 @@ process.on('unhandledRejection', (reason) => {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   // Middleware for JSON parsing with ample limit
   app.use(express.json({ limit: '10mb' }));
