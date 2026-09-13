@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Expense, MarketplaceSubscription, Store, Delivery, Transaction, Article, UserProfile, SachaPackWebhookPayload, SachaPackWebhookResponse, LogisticsProviderConfig, StoreReferralRecord, LogisticsConnectionTestResult } from '../types';
 import { sanpiManager } from '../lib/storeManager';
 import { generateSanpiExecutivePdfReport } from '../lib/pdfReportGenerator';
@@ -77,11 +77,14 @@ import {
   Download,
   BookOpen,
   Palette,
-  Receipt
+  Receipt,
+  UserCheck,
+  Calculator
 } from 'lucide-react';
 import { speakSanpi } from '../lib/audioTTS';
 import { AdminPlansManager } from './AdminPlansManager';
 import { AdminBrandingManager } from './AdminBrandingManager';
+import { AdminUsersManager } from './AdminUsersManager';
 
 interface AdminPanelProps {
   stores: Store[];
@@ -91,10 +94,11 @@ interface AdminPanelProps {
   transactions: Transaction[];
   articles?: Article[];
   currentUser?: UserProfile | null;
-  initialTab?: 'subs' | 'stores' | 'referrals' | 'dropshippers' | 'landing_pages' | 'config' | 'finance' | 'expenses' | 'map' | 'plans' | 'branding';
+  initialTab?: 'users' | 'subs' | 'stores' | 'referrals' | 'dropshippers' | 'landing_pages' | 'config' | 'finance' | 'expenses' | 'map' | 'plans' | 'branding';
   onRefresh: () => void;
   onViewLandingPage?: (slug: string) => void;
   onSelectStoreSlug?: (slug: string) => void;
+  onNavigateToAccounting?: () => void;
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
@@ -105,13 +109,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   transactions,
   articles = sanpiManager.articles,
   currentUser,
-  initialTab = 'config',
+  initialTab = 'users',
   onRefresh,
   onViewLandingPage,
-  onSelectStoreSlug
+  onSelectStoreSlug,
+  onNavigateToAccounting
 }) => {
   const isMartinSuperAdmin = isSuperAdmin(currentUser?.email);
-  const [activeTab, setActiveTab] = useState<'subs' | 'stores' | 'referrals' | 'dropshippers' | 'landing_pages' | 'config' | 'finance' | 'expenses' | 'map' | 'plans' | 'branding'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'users' | 'subs' | 'stores' | 'referrals' | 'dropshippers' | 'landing_pages' | 'config' | 'finance' | 'expenses' | 'map' | 'plans' | 'branding'>(initialTab);
+  
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
+
   const [masterUnlocked, setMasterUnlocked] = useState<boolean>(isMartinSuperAdmin);
   const [keyInput, setKeyInput] = useState<string>('');
   const [showKeyModal, setShowKeyModal] = useState<boolean>(false);
@@ -872,6 +884,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {/* Main Navigation Tabs */}
       <div className="flex items-center gap-2 overflow-x-auto bg-white p-2 rounded-2xl shadow-md border border-slate-100 text-xs font-bold">
         <button
+          onClick={() => setActiveTab('users')}
+          className={`px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 shrink-0 ${
+            activeTab === 'users' ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30' : 'text-purple-900 bg-purple-50/70 hover:bg-purple-100'
+          }`}
+        >
+          <UserCheck className="w-4 h-4 text-purple-600" />
+          <span>Panel de Usuarios & Roles</span>
+          <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-full ${activeTab === 'users' ? 'bg-white text-purple-700' : 'bg-purple-200 text-purple-900'}`}>
+            Nuevo
+          </span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('subs')}
           className={`px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 shrink-0 ${
             activeTab === 'subs' ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30' : 'text-slate-600 hover:bg-slate-100'
@@ -1006,6 +1031,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           <span>Mapa Logístico RD</span>
         </button>
       </div>
+
+      {/* TAB 0: PANEL DE USUARIOS Y ROLES (ADMIN CENTRAL) */}
+      {activeTab === 'users' && (
+        <AdminUsersManager
+          currentUser={currentUser}
+          onRefreshParent={onRefresh}
+        />
+      )}
 
       {/* TAB 1: SOLICITUDES DE REGISTRO DE TIENDAS */}
       {activeTab === 'subs' && (
@@ -1983,7 +2016,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         type="text"
                         value={syncAllStoresIdInput}
                         onChange={(e) => setSyncAllStoresIdInput(e.target.value)}
-                        placeholder="Ej: Vw5WLzIfe3TI59EgbOBtVisY08U2"
+                        placeholder="Ej: sxOzEivG9GP9SvaVuF1nVpQZCOu1"
                         className="w-full bg-white border-2 border-amber-300 focus:border-amber-500 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold text-slate-900"
                       />
                     </div>
@@ -2248,11 +2281,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
                 <div className="flex flex-wrap items-center gap-2 font-mono text-sm bg-slate-900 text-emerald-400 p-3.5 rounded-xl border border-slate-800">
                   <span className="bg-emerald-600 text-white font-black px-2 py-0.5 rounded text-xs">POST</span>
-                  <span className="font-bold flex-1 break-all">https://www.sachapack.com/api/logistics-webhook</span>
+                  <span className="font-bold flex-1 break-all">https://studio-345939831630.us-central1.run.app/api/logistics-webhook</span>
                   <button
                     type="button"
                     onClick={() => {
-                      navigator.clipboard.writeText('https://www.sachapack.com/api/logistics-webhook');
+                      navigator.clipboard.writeText('https://studio-345939831630.us-central1.run.app/api/logistics-webhook');
                       alert('Endpoint copiado al portapapeles.');
                     }}
                     className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
@@ -2403,22 +2436,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <pre className="bg-slate-950 text-emerald-400 font-mono text-xs p-4 rounded-2xl border border-slate-800 overflow-x-auto leading-relaxed shadow-inner max-h-[380px]">
 {`{
   "storeId": "${DEFAULT_SACHA_PACK_STORE_ID}",
-  "externalOrderId": "INV-2026-001",
-  "paymentMethod": "contra entrega",
   "items": [
-    {
-      "sku": "744123456789",
-      "quantity": 1,
-      "price": 1500.00,
-      "name": "Tenis Deportivos"
-    }
+    { "barcode_imei": "SKU-001", "quantity": 1, "price": 1500, "name": "Producto A" }
   ],
   "customer": {
     "name": "Juan Perez",
-    "phone": "8095551212",
-    "address": "Calle Principal #5, Ens. Libertad",
-    "province": "Santiago",
-    "municipality": "Santiago de los Caballeros"
+    "phone": "8095551234",
+    "address": "Calle Principal #5",
+    "province": "Santiago"
   }
 }`}
                     </pre>
@@ -2435,16 +2460,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         type="button"
                         onClick={() => {
                           const apiKey = DEFAULT_SACHA_PACK_API_KEY;
-                          const url = 'https://www.sachapack.com/api/logistics-webhook';
+                          const url = 'https://studio-345939831630.us-central1.run.app/api/logistics-webhook';
                           let code = '';
                           if (codeSnippetLanguage === 'curl') {
-                            code = `curl -X POST "${url}" \\\n  -H "Content-Type: application/json" \\\n  -H "Authorization: Bearer ${apiKey}" \\\n  -d '{"storeId":"${DEFAULT_SACHA_PACK_STORE_ID}","externalOrderId":"INV-2026-001","paymentMethod":"contra entrega","items":[{"sku":"744123456789","quantity":1,"price":1500.00,"name":"Tenis Deportivos"}],"customer":{"name":"Juan Perez","phone":"8095551212","address":"Calle Principal #5, Ens. Libertad","province":"Santiago","municipality":"Santiago de los Caballeros"}}'`;
+                            code = `curl -X POST "${url}" \\\n  -H "Content-Type: application/json" \\\n  -H "Authorization: Bearer ${apiKey}" \\\n  -d '{\n  "storeId": "${DEFAULT_SACHA_PACK_STORE_ID}",\n  "items": [\n    { "barcode_imei": "SKU-001", "quantity": 1, "price": 1500, "name": "Producto A" }\n  ],\n  "customer": {\n    "name": "Juan Perez",\n    "phone": "8095551234",\n    "address": "Calle Principal #5",\n    "province": "Santiago"\n  }\n}'`;
                           } else if (codeSnippetLanguage === 'javascript') {
-                            code = `const response = await fetch("${url}", {\n  method: "POST",\n  headers: {\n    "Content-Type": "application/json",\n    "Authorization": "Bearer ${apiKey}"\n  },\n  body: JSON.stringify({\n    storeId: "${DEFAULT_SACHA_PACK_STORE_ID}",\n    externalOrderId: "INV-2026-001",\n    paymentMethod: "contra entrega",\n    items: [{\n      sku: "744123456789",\n      quantity: 1,\n      price: 1500.00,\n      name: "Tenis Deportivos"\n    }],\n    customer: {\n      name: "Juan Perez",\n      phone: "8095551212",\n      address: "Calle Principal #5, Ens. Libertad",\n      province: "Santiago",\n      municipality: "Santiago de los Caballeros"\n    }\n  })\n});\nconst result = await response.json();\nconsole.log(result);`;
+                            code = `// Ejemplo de conexión rápida (Node.js/JavaScript)\nasync function sendOrder(orderData) {\n  const response = await fetch('${url}', {\n    method: 'POST',\n    headers: {\n      'Content-Type': 'application/json',\n      'Authorization': 'Bearer ' + '${apiKey}'\n    },\n    body: JSON.stringify(orderData)\n  });\n  return await response.json();\n}\n\nconst orderData = {\n  "storeId": "${DEFAULT_SACHA_PACK_STORE_ID}",\n  "items": [\n    { "barcode_imei": "SKU-001", "quantity": 1, "price": 1500, "name": "Producto A" }\n  ],\n  "customer": {\n    "name": "Juan Perez",\n    "phone": "8095551234",\n    "address": "Calle Principal #5",\n    "province": "Santiago"\n  }\n};\n\nsendOrder(orderData).then(console.log);`;
                           } else if (codeSnippetLanguage === 'python') {
-                            code = `import requests\n\nurl = "${url}"\nheaders = {\n    "Content-Type": "application/json",\n    "Authorization": "Bearer ${apiKey}"\n}\npayload = {\n    "storeId": "${DEFAULT_SACHA_PACK_STORE_ID}",\n    "externalOrderId": "INV-2026-001",\n    "paymentMethod": "contra entrega",\n    "items": [{\n        "sku": "744123456789",\n        "quantity": 1,\n        "price": 1500.00,\n        "name": "Tenis Deportivos"\n    }],\n    "customer": {\n        "name": "Juan Perez",\n        "phone": "8095551212",\n        "address": "Calle Principal #5, Ens. Libertad",\n        "province": "Santiago",\n        "municipality": "Santiago de los Caballeros"\n    }\n}\n\nres = requests.post(url, json=payload, headers=headers)\nprint(res.status_code, res.json())`;
+                            code = `import requests\n\ndef send_order(order_data):\n    headers = {\n        "Content-Type": "application/json",\n        "Authorization": "Bearer ${apiKey}"\n    }\n    response = requests.post("${url}", json=order_data, headers=headers)\n    return response.json()\n\norder_data = {\n    "storeId": "${DEFAULT_SACHA_PACK_STORE_ID}",\n    "items": [\n        {"barcode_imei": "SKU-001", "quantity": 1, "price": 1500, "name": "Producto A"}\n    ],\n    "customer": {\n        "name": "Juan Perez",\n        "phone": "8095551234",\n        "address": "Calle Principal #5",\n        "province": "Santiago"\n    }\n}\n\nprint(send_order(order_data))`;
                           } else {
-                            code = `<?php\n$url = "${url}";\n$payload = json_encode([\n    "storeId" => "${DEFAULT_SACHA_PACK_STORE_ID}",\n    "externalOrderId" => "INV-2026-001",\n    "paymentMethod" => "contra entrega",\n    "items" => [[\n        "sku" => "744123456789",\n        "quantity" => 1,\n        "price" => 1500.00,\n        "name" => "Tenis Deportivos"\n    ]],\n    "customer" => [\n        "name" => "Juan Perez",\n        "phone" => "8095551212",\n        "address" => "Calle Principal #5, Ens. Libertad",\n        "province" => "Santiago",\n        "municipality" => "Santiago de los Caballeros"\n    ]\n]);\n\n$ch = curl_init($url);\ncurl_setopt($ch, CURLOPT_RETURNTRANSFER, true);\ncurl_setopt($ch, CURLOPT_POST, true);\ncurl_setopt($ch, CURLOPT_POSTFIELDS, $payload);\ncurl_setopt($ch, CURLOPT_HTTPHEADER, [\n    "Content-Type: application/json",\n    "Authorization: Bearer ${apiKey}"\n]);\n$res = curl_exec($ch);\ncurl_close($ch);\necho $res;`;
+                            code = `<?php\n$url = "${url}";\n$payload = json_encode([\n    "storeId" => "${DEFAULT_SACHA_PACK_STORE_ID}",\n    "items" => [[\n        "barcode_imei" => "SKU-001",\n        "quantity" => 1,\n        "price" => 1500,\n        "name" => "Producto A"\n    ]],\n    "customer" => [\n        "name" => "Juan Perez",\n        "phone" => "8095551234",\n        "address" => "Calle Principal #5",\n        "province" => "Santiago"\n    ]\n]);\n\n$ch = curl_init($url);\ncurl_setopt($ch, CURLOPT_RETURNTRANSFER, true);\ncurl_setopt($ch, CURLOPT_POST, true);\ncurl_setopt($ch, CURLOPT_POSTFIELDS, $payload);\ncurl_setopt($ch, CURLOPT_HTTPHEADER, [\n    "Content-Type: application/json",\n    "Authorization: Bearer ${apiKey}"\n]);\n$res = curl_exec($ch);\ncurl_close($ch);\necho $res;`;
                           }
                           navigator.clipboard.writeText(code);
                           alert('Código copiado al portapapeles.');
@@ -2457,108 +2482,92 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     </div>
 
                     <pre className="bg-slate-900 text-slate-200 font-mono text-xs p-4 rounded-2xl border border-slate-800 overflow-x-auto leading-relaxed shadow-inner max-h-[380px]">
-{codeSnippetLanguage === 'curl' && `curl -X POST "https://www.sachapack.com/api/logistics-webhook" \\
+{codeSnippetLanguage === 'curl' && `curl -X POST "https://studio-345939831630.us-central1.run.app/api/logistics-webhook" \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer ${DEFAULT_SACHA_PACK_API_KEY}" \\
   -d '{
-    "storeId": "${DEFAULT_SACHA_PACK_STORE_ID}",
-    "externalOrderId": "INV-2026-001",
-    "paymentMethod": "contra entrega",
-    "items": [
-      {
-        "sku": "744123456789",
-        "quantity": 1,
-        "price": 1500.00,
-        "name": "Tenis Deportivos"
-      }
-    ],
-    "customer": {
-      "name": "Juan Perez",
-      "phone": "8095551212",
-      "address": "Calle Principal #5, Ens. Libertad",
-      "province": "Santiago",
-      "municipality": "Santiago de los Caballeros"
-    }
-  }'`}
-{codeSnippetLanguage === 'javascript' && `const response = await fetch("https://www.sachapack.com/api/logistics-webhook", {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-    "Authorization": "Bearer ${DEFAULT_SACHA_PACK_API_KEY}"
-  },
-  body: JSON.stringify({
-    storeId: "${DEFAULT_SACHA_PACK_STORE_ID}",
-    externalOrderId: "INV-2026-001",
-    paymentMethod: "contra entrega",
-    items: [
-      {
-        sku: "744123456789",
-        quantity: 1,
-        price: 1500.00,
-        name: "Tenis Deportivos"
-      }
-    ],
-    customer: {
-      name: "Juan Perez",
-      phone: "8095551212",
-      address: "Calle Principal #5, Ens. Libertad",
-      province: "Santiago",
-      municipality: "Santiago de los Caballeros"
-    }
-  })
-});
-const result = await response.json();
-console.log(result);`}
+  "storeId": "${DEFAULT_SACHA_PACK_STORE_ID}",
+  "items": [
+    { "barcode_imei": "SKU-001", "quantity": 1, "price": 1500, "name": "Producto A" }
+  ],
+  "customer": {
+    "name": "Juan Perez",
+    "phone": "8095551234",
+    "address": "Calle Principal #5",
+    "province": "Santiago"
+  }
+}'`}
+{codeSnippetLanguage === 'javascript' && `// Ejemplo de conexión rápida (Node.js/JavaScript)
+async function sendOrder(orderData) {
+  const response = await fetch('https://studio-345939831630.us-central1.run.app/api/logistics-webhook', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + '${DEFAULT_SACHA_PACK_API_KEY}'
+    },
+    body: JSON.stringify(orderData)
+  });
+  return await response.json();
+}
+
+// Estructura de orderData:
+const orderData = {
+  "storeId": "${DEFAULT_SACHA_PACK_STORE_ID}",
+  "items": [
+    { "barcode_imei": "SKU-001", "quantity": 1, "price": 1500, "name": "Producto A" }
+  ],
+  "customer": {
+    "name": "Juan Perez",
+    "phone": "8095551234",
+    "address": "Calle Principal #5",
+    "province": "Santiago"
+  }
+};
+
+sendOrder(orderData).then(console.log);`}
 {codeSnippetLanguage === 'python' && `import requests
 
-url = "https://www.sachapack.com/api/logistics-webhook"
-headers = {
-    "Content-Type": "application/json",
-    "Authorization": "Bearer ${DEFAULT_SACHA_PACK_API_KEY}"
-}
-payload = {
+def send_order(order_data):
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer ${DEFAULT_SACHA_PACK_API_KEY}"
+    }
+    response = requests.post(
+        "https://studio-345939831630.us-central1.run.app/api/logistics-webhook",
+        json=order_data,
+        headers=headers
+    )
+    return response.json()
+
+order_data = {
     "storeId": "${DEFAULT_SACHA_PACK_STORE_ID}",
-    "externalOrderId": "INV-2026-001",
-    "paymentMethod": "contra entrega",
     "items": [
-        {
-            "sku": "744123456789",
-            "quantity": 1,
-            "price": 1500.00,
-            "name": "Tenis Deportivos"
-        }
+        {"barcode_imei": "SKU-001", "quantity": 1, "price": 1500, "name": "Producto A"}
     ],
     "customer": {
         "name": "Juan Perez",
-        "phone": "8095551212",
-        "address": "Calle Principal #5, Ens. Libertad",
-        "province": "Santiago",
-        "municipality": "Santiago de los Caballeros"
+        "phone": "8095551234",
+        "address": "Calle Principal #5",
+        "province": "Santiago"
     }
 }
 
-res = requests.post(url, json=payload, headers=headers)
-print(res.status_code, res.json())`}
+print(send_order(order_data))`}
 {codeSnippetLanguage === 'php' && `<?php
-$url = "https://www.sachapack.com/api/logistics-webhook";
+$url = "https://studio-345939831630.us-central1.run.app/api/logistics-webhook";
 $payload = json_encode([
     "storeId" => "${DEFAULT_SACHA_PACK_STORE_ID}",
-    "externalOrderId" => "INV-2026-001",
-    "paymentMethod" => "contra entrega",
-    "items" => [
-        [
-            "sku" => "744123456789",
-            "quantity" => 1,
-            "price" => 1500.00,
-            "name" => "Tenis Deportivos"
-        ]
-    ],
+    "items" => [[
+        "barcode_imei" => "SKU-001",
+        "quantity" => 1,
+        "price" => 1500,
+        "name" => "Producto A"
+    ]],
     "customer" => [
         "name" => "Juan Perez",
-        "phone" => "8095551212",
-        "address" => "Calle Principal #5, Ens. Libertad",
-        "province" => "Santiago",
-        "municipality" => "Santiago de los Caballeros"
+        "phone" => "8095551234",
+        "address" => "Calle Principal #5",
+        "province" => "Santiago"
     ]
 ]);
 
@@ -3046,6 +3055,36 @@ echo $res;`}
       {activeTab === 'finance' && (
         <div className="space-y-8">
           
+          {/* Direct shortcut to Accounting Module & Reports */}
+          {onNavigateToAccounting && (
+            <div className="bg-gradient-to-r from-emerald-950 via-slate-900 to-slate-900 border border-emerald-500/30 rounded-3xl p-5 text-white flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xl">
+              <div className="flex items-center gap-3.5">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center shrink-0">
+                  <Calculator className="w-6 h-6 text-emerald-400" />
+                </div>
+                <div>
+                  <h4 className="font-black text-sm text-white flex items-center gap-2">
+                    Módulo de Contabilidad Integral por Usuario
+                    <span className="text-[10px] bg-emerald-500 text-slate-950 font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
+                      PDF & Excel
+                    </span>
+                  </h4>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Auditoría por usuario, beneficios, gastos operacionales, balance neto y exportación formal en PDF y Excel.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={onNavigateToAccounting}
+                className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition-all shadow-lg flex items-center gap-2 shrink-0 cursor-pointer"
+              >
+                <Calculator className="w-4 h-4" />
+                <span>Abrir Contabilidad & Reportes</span>
+              </button>
+            </div>
+          )}
+
           {/* KPI Financial Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             

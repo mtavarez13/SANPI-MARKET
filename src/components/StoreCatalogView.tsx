@@ -83,9 +83,11 @@ export const StoreCatalogView: React.FC<StoreCatalogViewProps> = ({
   const storeArticles = useMemo(() => {
     if (!selectedStore) return [];
     return articles.filter(
-      (a) => (a.storeId === selectedStore.id || a.storeName === selectedStore.name) && a.status === 'aprobado'
+      (a) => (a.storeId === selectedStore.id || a.storeName === selectedStore.name) && 
+             a.status === 'aprobado' &&
+             (isOwner || (!a.isProviderProduct && a.visibility !== 'dropshippers_only' && a.isPublic !== false))
     );
-  }, [articles, selectedStore]);
+  }, [articles, selectedStore, isOwner]);
 
   // Categories present in this store
   const storeCategories = useMemo(() => {

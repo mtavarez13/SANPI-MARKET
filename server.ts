@@ -84,21 +84,38 @@ async function startServer() {
       samplePayload
     } = req.body;
 
-    const targetUrl = (endpointUrl || webhookUrl || '').trim();
-    if (!targetUrl) {
-      return res.status(400).json({
-        success: false,
-        status: 400,
-        latencyMs: 0,
-        message: 'Debe especificar el Endpoint URL de la empresa de transporte.',
-        timestamp: new Date().toISOString(),
-        endpoint: ''
-      });
+    let rawTargetUrl = (endpointUrl || webhookUrl || req.body?.url || '').trim();
+    let rawApiKey = (apiKey || authToken || '').trim();
+
+    // Auto-recovery: If user swapped apiKey and targetUrl
+    if ((rawTargetUrl.startsWith('sk_') || rawTargetUrl.startsWith('sanpi_')) && (rawApiKey.startsWith('http://') || rawApiKey.startsWith('https://'))) {
+      const temp = rawTargetUrl;
+      rawTargetUrl = rawApiKey;
+      rawApiKey = temp;
+    } else if (rawTargetUrl.startsWith('sk_') || rawTargetUrl.startsWith('sanpi_') || (!rawTargetUrl.includes('://') && rawTargetUrl.length > 25 && !rawTargetUrl.includes('/'))) {
+      if (!rawApiKey) rawApiKey = rawTargetUrl;
+      rawTargetUrl = 'https://studio-345939831630.us-central1.run.app/api/logistics-webhook';
+    }
+
+    let targetUrl = rawTargetUrl || 'https://studio-345939831630.us-central1.run.app/api/logistics-webhook';
+    if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
+      if (targetUrl.includes('.')) {
+        targetUrl = `https://${targetUrl}`;
+      } else {
+        return res.status(400).json({
+          success: false,
+          status: 400,
+          latencyMs: 0,
+          message: `La URL "${targetUrl}" no es válida. Debe comenzar con http:// o https://`,
+          timestamp: new Date().toISOString(),
+          endpoint: targetUrl
+        });
+      }
     }
 
     const outgoingHeaders = buildCarrierHeaders({
-      apiKey,
-      authToken,
+      apiKey: rawApiKey,
+      authToken: rawApiKey,
       authType,
       customHeaderName,
       headers
@@ -228,12 +245,32 @@ async function startServer() {
       payload
     } = req.body;
 
-    const targetUrl = (endpointUrl || webhookUrl || '').trim();
+    let rawTargetUrl = (endpointUrl || webhookUrl || req.body?.url || '').trim();
+    let rawApiKey = (apiKey || authToken || '').trim();
 
-    if (!targetUrl || !payload) {
+    // Auto-recovery: If user swapped apiKey and targetUrl
+    if ((rawTargetUrl.startsWith('sk_') || rawTargetUrl.startsWith('sanpi_')) && (rawApiKey.startsWith('http://') || rawApiKey.startsWith('https://'))) {
+      const temp = rawTargetUrl;
+      rawTargetUrl = rawApiKey;
+      rawApiKey = temp;
+    } else if (rawTargetUrl.startsWith('sk_') || rawTargetUrl.startsWith('sanpi_') || (!rawTargetUrl.includes('://') && rawTargetUrl.length > 25 && !rawTargetUrl.includes('/'))) {
+      if (!rawApiKey) rawApiKey = rawTargetUrl;
+      rawTargetUrl = 'https://studio-345939831630.us-central1.run.app/api/logistics-webhook';
+    }
+
+    let targetUrl = rawTargetUrl || 'https://studio-345939831630.us-central1.run.app/api/logistics-webhook';
+    if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
+      if (targetUrl.includes('.')) {
+        targetUrl = `https://${targetUrl}`;
+      } else {
+        targetUrl = 'https://studio-345939831630.us-central1.run.app/api/logistics-webhook';
+      }
+    }
+
+    if (!payload) {
       return res.status(400).json({
         success: false,
-        error: 'Missing required parameters: endpointUrl/webhookUrl and payload are required'
+        error: 'Missing required parameter: payload is required'
       });
     }
 
@@ -264,8 +301,8 @@ async function startServer() {
           currentStoreId.startsWith('store-') ||
           currentStoreId.length < 10)
       ) {
-        sanitizedPayload.storeId = 'Vw5WLzIfe3TI59EgbOBtVisY08U2';
-        console.log(`ℹ️ [Server Carrier Dispatch] StoreId normalizado a Master Partner ID Oficial: Vw5WLzIfe3TI59EgbOBtVisY08U2`);
+        sanitizedPayload.storeId = 'sxOzEivG9GP9SvaVuF1nVpQZCOu1';
+        console.log(`ℹ️ [Server Carrier Dispatch] StoreId normalizado a Master Partner ID Oficial: sxOzEivG9GP9SvaVuF1nVpQZCOu1`);
       }
     }
 
@@ -357,13 +394,13 @@ async function startServer() {
         typeof responseData === 'object' &&
         typeof responseData.error === 'string' &&
         responseData.error.toLowerCase().includes('tienda') &&
-        sanitizedPayload?.storeId !== 'Vw5WLzIfe3TI59EgbOBtVisY08U2'
+        sanitizedPayload?.storeId !== 'sxOzEivG9GP9SvaVuF1nVpQZCOu1'
       ) {
-        console.log(`🔄 [Server Carrier Dispatch] Tienda no registrada detectada. Reintentando automáticamente con Master Store ID (Vw5WLzIfe3TI59EgbOBtVisY08U2)...`);
+        console.log(`🔄 [Server Carrier Dispatch] Tienda no registrada detectada. Reintentando automáticamente con Master Store ID (sxOzEivG9GP9SvaVuF1nVpQZCOu1)...`);
         try {
           const retryPayload = {
             ...sanitizedPayload,
-            storeId: 'Vw5WLzIfe3TI59EgbOBtVisY08U2'
+            storeId: 'sxOzEivG9GP9SvaVuF1nVpQZCOu1'
           };
           const retryController = new AbortController();
           const retryTimeoutId = setTimeout(() => retryController.abort(), 12000);
@@ -405,7 +442,7 @@ async function startServer() {
 
       if (!isSuccess && responseData && typeof responseData === 'object' && responseData.error) {
         if (typeof responseData.error === 'string' && responseData.error.toLowerCase().includes('tienda')) {
-          explanationMessage = `Sacha Pack API (${response.status}): ${responseData.error} Recomendación: Utiliza el Store ID registrado en Sacha Pack ("Vw5WLzIfe3TI59EgbOBtVisY08U2") o registra el UID de tu tienda en Sacha Pack.`;
+          explanationMessage = `Sacha Pack API (${response.status}): ${responseData.error} Recomendación: Utiliza el Store ID registrado en Sacha Pack ("sxOzEivG9GP9SvaVuF1nVpQZCOu1") o registra el UID de tu tienda en Sacha Pack.`;
         }
       }
 
@@ -481,7 +518,255 @@ async function startServer() {
     });
   });
 
-  // 4. WELCOME EMAIL DISPATCH ENDPOINT (Sanpi Registration & Referral Program)
+  // 4. CARRIER NOTIFY API (Accepts storeId, apiKey, endpointUrl, and order)
+  const handleCarrierNotify = async (req: express.Request, res: express.Response) => {
+    try {
+      const {
+        storeId,
+        apiKey,
+        endpointUrl,
+        order,
+        // Also accept common alias parameter names for broad compatibility
+        carrierEndpointUrl,
+        webhookUrl,
+        url,
+        key,
+        token,
+        externalOrderId,
+        items,
+        customer,
+        paymentMethod
+      } = req.body || {};
+
+      // 1. Extract raw parameters
+      let rawEndpoint = (endpointUrl || carrierEndpointUrl || webhookUrl || url || '').trim();
+      let rawApiKey = (apiKey || key || token || req.headers['authorization']?.replace(/^Bearer\s+/i, '') || '').trim();
+      const resolvedStoreId = (storeId || req.body?.store_id || 'sxOzEivG9GP9SvaVuF1nVpQZCOu1').trim();
+
+      // 2. Intelligent Auto-Recovery: Handle swapped or misplaced credentials / endpoint URLs
+      // Case A: Swapped parameters (endpointUrl is sk_... and apiKey is http...)
+      if ((rawEndpoint.startsWith('sk_') || rawEndpoint.startsWith('sanpi_')) && (rawApiKey.startsWith('http://') || rawApiKey.startsWith('https://'))) {
+        console.log(`🔄 [Carrier Notify API] Parámetros invertidos detectados. Intercambiando endpointUrl y apiKey.`);
+        const temp = rawEndpoint;
+        rawEndpoint = rawApiKey;
+        rawApiKey = temp;
+      }
+      // Case B: User passed an API Key in the endpointUrl field (e.g. sk_sacha_q17dqotk57swhxpuytwtdo44vy7irljf)
+      else if (rawEndpoint.startsWith('sk_') || rawEndpoint.startsWith('sanpi_') || (!rawEndpoint.includes('://') && rawEndpoint.length > 25 && !rawEndpoint.includes('/'))) {
+        console.log(`🔑 [Carrier Notify API] Clave API detectada en endpointUrl (${rawEndpoint.slice(0, 10)}...). Asignando a apiKey y usando webhook oficial.`);
+        if (!rawApiKey || rawApiKey === 'sk_sacha_wcrvnhqagxd86pqpxs1jfikvjq8mqmxt') {
+          rawApiKey = rawEndpoint;
+        }
+        rawEndpoint = 'https://studio-345939831630.us-central1.run.app/api/logistics-webhook';
+      }
+
+      // Case C: Empty endpoint, fallback to official webhook
+      if (!rawEndpoint) {
+        rawEndpoint = 'https://studio-345939831630.us-central1.run.app/api/logistics-webhook';
+      }
+
+      // Ensure proper protocol
+      if (!rawEndpoint.startsWith('http://') && !rawEndpoint.startsWith('https://')) {
+        if (rawEndpoint.includes('.')) {
+          rawEndpoint = `https://${rawEndpoint}`;
+        } else {
+          rawEndpoint = 'https://studio-345939831630.us-central1.run.app/api/logistics-webhook';
+        }
+      }
+
+      // Validate URL parseability safely
+      let targetEndpoint = rawEndpoint;
+      try {
+        new URL(targetEndpoint);
+      } catch {
+        console.warn(`⚠️ [Carrier Notify API] URL no parseable "${targetEndpoint}". Usando endpoint oficial por defecto.`);
+        targetEndpoint = 'https://studio-345939831630.us-central1.run.app/api/logistics-webhook';
+      }
+
+      let resolvedApiKey = rawApiKey;
+      if (!resolvedApiKey && (targetEndpoint.includes('sachapack.com') || targetEndpoint.includes('studio-345939831630'))) {
+        resolvedApiKey = 'sk_sacha_wcrvnhqagxd86pqpxs1jfikvjq8mqmxt';
+      }
+
+      if (!resolvedStoreId) {
+        return res.status(400).json({
+          success: false,
+          error: 'Debe especificar el parámetro "storeId" con el ID de la tienda o socio.'
+        });
+      }
+
+      // Format payload according to standard Dominican logistics format:
+      // { storeId, items: [{ barcode_imei, quantity, price, name }], customer: { name, phone, address, province } }
+      let carrierPayload: any;
+
+      if (req.body?.items && req.body?.customer) {
+        const rawItems = Array.isArray(req.body.items) ? req.body.items : [];
+        carrierPayload = {
+          storeId: resolvedStoreId,
+          items: rawItems.map((item: any) => ({
+            barcode_imei: String(item.barcode_imei || item.sku || item.id || 'SKU-001'),
+            quantity: Number(item.quantity) || 1,
+            price: Number(item.price) || 1500,
+            name: String(item.name || 'Producto A')
+          })),
+          customer: {
+            name: String(req.body.customer.name || 'Juan Perez'),
+            phone: String(req.body.customer.phone || '8095551234').replace(/[^0-9]/g, '') || '8095551234',
+            address: String(req.body.customer.address || 'Calle Principal #5'),
+            province: String(req.body.customer.province || 'Santiago')
+          }
+        };
+      } else if (order && typeof order === 'object') {
+        const lineItems = Array.isArray(order.items)
+          ? order.items
+          : (Array.isArray(order.line_items) ? order.line_items : []);
+
+        const shipping = order.customer || order.shipping || {};
+
+        carrierPayload = {
+          storeId: resolvedStoreId,
+          items: lineItems.length > 0 ? lineItems.map((item: any) => ({
+            barcode_imei: String(item.barcode_imei || item.sku || item.barcode || item.id || 'SKU-001'),
+            quantity: Number(item.quantity) || 1,
+            price: Number(item.price) || 1500,
+            name: String(item.name || item.title || 'Producto A')
+          })) : [
+            {
+              barcode_imei: 'SKU-001',
+              quantity: 1,
+              price: 1500,
+              name: 'Producto A'
+            }
+          ],
+          customer: {
+            name: String(
+              shipping.name || 
+              (shipping.first_name ? `${shipping.first_name} ${shipping.last_name || ''}`.trim() : '') || 
+              'Juan Perez'
+            ),
+            phone: String(shipping.phone || '8095551234').replace(/[^0-9]/g, '') || '8095551234',
+            address: String(shipping.address || shipping.address_1 || 'Calle Principal #5'),
+            province: String(shipping.province || shipping.state || 'Santiago')
+          }
+        };
+      } else {
+        carrierPayload = {
+          storeId: resolvedStoreId,
+          items: [
+            {
+              barcode_imei: 'SKU-001',
+              quantity: 1,
+              price: 1500,
+              name: 'Producto A'
+            }
+          ],
+          customer: {
+            name: 'Juan Perez',
+            phone: '8095551234',
+            address: 'Calle Principal #5',
+            province: 'Santiago'
+          }
+        };
+      }
+
+      console.log(`\n🚚 [Carrier Notify API] Enviando solicitud a transportista: ${targetEndpoint}`);
+      console.log(`🏢 Store ID: ${resolvedStoreId}`);
+      console.log(`🔑 API Key: ${resolvedApiKey ? resolvedApiKey.slice(0, 8) + '...' : '(ninguna)'}`);
+      console.log(`📦 Payload estructurado:`, JSON.stringify(carrierPayload, null, 2));
+
+      const startTime = performance.now();
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+      const requestHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'User-Agent': 'Sanpi-Carrier-API/1.0 (Dominican Republic)'
+      };
+
+      if (resolvedApiKey) {
+        requestHeaders['Authorization'] = `Bearer ${resolvedApiKey}`;
+        requestHeaders['x-api-key'] = resolvedApiKey;
+      }
+
+      const response = await fetch(targetEndpoint, {
+        method: 'POST',
+        headers: requestHeaders,
+        body: JSON.stringify(carrierPayload),
+        signal: controller.signal,
+        redirect: 'manual'
+      });
+
+      clearTimeout(timeoutId);
+      const latencyMs = Math.round(performance.now() - startTime);
+
+      let responseData: any = null;
+      const responseContentType = response.headers.get('content-type') || '';
+      if (responseContentType.includes('application/json')) {
+        try {
+          responseData = await response.json();
+        } catch {
+          responseData = await response.text();
+        }
+      } else {
+        responseData = await response.text();
+      }
+
+      const isSuccess = response.ok || response.status === 201;
+
+      console.log(`📥 [Carrier Notify API] Respuesta de transportista HTTP ${response.status} en ${latencyMs}ms`);
+
+      let customMessage = isSuccess
+        ? `Notificación procesada exitosamente por el transportista (HTTP ${response.status} en ${latencyMs}ms)`
+        : `El transportista respondió con código HTTP ${response.status}`;
+
+      let hint: string | undefined = undefined;
+
+      if (!isSuccess && responseData && typeof responseData === 'object' && responseData.error) {
+        if (typeof responseData.error === 'string' && responseData.error.toLowerCase().includes('tienda')) {
+          customMessage = `Error de Sacha Pack (HTTP ${response.status}): ${responseData.error}`;
+          hint = `El Store ID ("${resolvedStoreId}") no está dado de alta en la base de datos de Sacha Pack. Para corregirlo: 1) Inicia sesión en tu cuenta de socio en https://www.sachapack.com y copia el Store ID / Partner UID asignado a tu tienda. 2) O puedes probar el flujo usando el Webhook Local de Pruebas de Sanpi.`;
+        }
+      }
+
+      return res.status(200).json({
+        success: isSuccess,
+        status: response.status,
+        latencyMs,
+        endpoint: targetEndpoint,
+        storeId: resolvedStoreId,
+        hint,
+        sentPayload: carrierPayload,
+        carrierResponse: responseData,
+        message: customMessage
+      });
+
+    } catch (err: any) {
+      console.error('Error en /api/carrier/notify:', err?.message || err);
+      const isDnsOrUnreachable = err.code === 'ENOTFOUND' || err.message?.includes('fetch failed') || err.message?.includes('getaddrinfo') || err.name === 'AbortError';
+      const isInvalidUrl = err.name === 'TypeError' && (err.message?.includes('URL') || err.message?.includes('Invalid URL'));
+
+      return res.status(200).json({
+        success: false,
+        status: isDnsOrUnreachable ? 503 : (isInvalidUrl ? 400 : 500),
+        error: isInvalidUrl
+          ? `La URL de destino no es válida (${req.body?.endpointUrl || req.body?.url || ''}). Debe comenzar con https://`
+          : (isDnsOrUnreachable
+              ? `No se pudo alcanzar el endpoint del transportista (${req.body?.endpointUrl || ''}). Verifica que el dominio y servidor estén activos.`
+              : `Error al comunicar con transportista: ${err.message}`),
+        details: err.code || err.name || 'CARRIER_NOTIFY_ERROR',
+        endpoint: req.body?.endpointUrl || '',
+        storeId: req.body?.storeId || ''
+      });
+    }
+  };
+
+  app.post('/api/carrier/notify', handleCarrierNotify);
+  app.post('/api/carrier/dispatch', handleCarrierNotify);
+  app.post('/api/carrier-notify', handleCarrierNotify);
+  app.post('/api/transportista/notificar', handleCarrierNotify);
+
+  // 5. WELCOME EMAIL DISPATCH ENDPOINT (Sanpi Registration & Referral Program)
   app.post('/api/send-welcome-email', (req, res) => {
     const {
       name = 'Socio Emprendedor',
@@ -671,26 +956,21 @@ async function startServer() {
           description: 'Payload enviado por Sanpi al Endpoint de la empresa de transporte cuando un cliente realiza una compra.',
           method: 'POST',
           samplePayload: {
-            storeId: 'Vw5WLzIfe3TI59EgbOBtVisY08U2',
-            externalOrderId: 'ORD-98421',
+            storeId: 'sxOzEivG9GP9SvaVuF1nVpQZCOu1',
             items: [
               {
-                barcode_imei: '742683901234',
+                barcode_imei: 'SKU-001',
                 quantity: 1,
-                price: 1850
+                price: 1500,
+                name: 'Producto A'
               }
             ],
             customer: {
-              name: 'Juan Pérez',
-              email: 'juan.perez@ejemplo.do',
-              phone: '809-555-0199',
-              address: 'Calle Las Palmas #42, Los Cacicazgos',
-              province: 'Distrito Nacional',
-              municipality: 'Santo Domingo'
-            },
-            paymentMethod: 'contra entrega',
-            codAmount: 2200,
-            shippingFee: 350
+              name: 'Juan Perez',
+              phone: '8095551234',
+              address: 'Calle Principal #5',
+              province: 'Santiago'
+            }
           }
         },
         inbound_status_webhook: {

@@ -16,15 +16,16 @@ import {
   Flame,
   ArrowRight,
   CheckCircle2,
-  Package
+  Package,
+  Calculator
 } from 'lucide-react';
 import { Article, Store as StoreType, UserProfile, SiteThemeConfig } from '../types';
 import { isSuperAdmin, signOutGoogle } from '../lib/authService';
 import { RD_PROVINCES, CATEGORIES } from '../data/rdProvinces';
 
 interface NavbarProps {
-  currentView: 'explore' | 'catalogs' | 'dropship' | 'track' | 'partner' | 'admin' | 'pdp';
-  setCurrentView: (view: 'explore' | 'catalogs' | 'dropship' | 'track' | 'partner' | 'admin' | 'pdp') => void;
+  currentView: 'explore' | 'catalogs' | 'dropship' | 'track' | 'partner' | 'admin' | 'pdp' | 'carrier' | 'supplier' | 'accounting';
+  setCurrentView: (view: 'explore' | 'catalogs' | 'dropship' | 'track' | 'partner' | 'admin' | 'pdp' | 'carrier' | 'supplier' | 'accounting') => void;
   selectedStoreSlug?: string | null;
   onSelectStoreSlug?: (slug: string | null) => void;
   cartCount: number;
@@ -41,6 +42,8 @@ interface NavbarProps {
   selectedLocation?: string;
   onSelectLocation?: (location: string) => void;
   config?: SiteThemeConfig;
+  onToggleSidebar?: () => void;
+  isSidebarOpen?: boolean;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -60,7 +63,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSelectArticle,
   selectedLocation = 'Distrito Nacional',
   onSelectLocation,
-  config
+  config,
+  onToggleSidebar,
+  isSidebarOpen
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
@@ -116,7 +121,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       .slice(0, 5);
   }, [articles, searchQuery, searchCategory]);
 
-  const handleNav = (view: 'explore' | 'catalogs' | 'dropship' | 'track' | 'partner' | 'admin' | 'pdp') => {
+  const handleNav = (view: 'explore' | 'catalogs' | 'dropship' | 'track' | 'partner' | 'admin' | 'pdp' | 'carrier' | 'supplier' | 'accounting') => {
     if (view !== 'catalogs' && onSelectStoreSlug) {
       onSelectStoreSlug(null);
     }
@@ -188,44 +193,61 @@ export const Navbar: React.FC<NavbarProps> = ({
       <div className="max-w-[1600px] xl:max-w-[1720px] 2xl:max-w-[1850px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-10 py-3">
         <div className="flex items-center justify-between gap-3 sm:gap-6">
           
-          {/* Logo Brand: Minimalist Sanpi / Custom Uploaded Brand */}
-          <div
-            className="flex items-center gap-3 cursor-pointer group shrink-0"
-            onClick={() => handleNav('explore')}
-            id="navbar-logo"
-          >
-            {config?.logoUrl ? (
-              <img
-                src={config.logoUrl}
-                alt={config.siteName || 'Sanpi'}
-                referrerPolicy="no-referrer"
-                style={{ height: `${config.logoHeight || 40}px` }}
-                className="max-w-[180px] object-contain group-hover:scale-105 transition-transform duration-200"
-              />
-            ) : (
-              <div
-                className="w-10 h-10 rounded-xl flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform duration-200 text-white font-black text-xl italic tracking-tighter"
-                style={{ backgroundColor: config?.primaryColor || '#7C3AED' }}
+          {/* Left Brand + Sidebar Toggle */}
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            {onToggleSidebar && (
+              <button
+                onClick={onToggleSidebar}
+                id="navbar-sidebar-toggle-btn"
+                className="p-2 sm:p-2.5 rounded-xl bg-slate-100 hover:bg-purple-50 hover:text-purple-700 text-slate-700 transition-colors border border-slate-200 cursor-pointer flex items-center gap-1.5 shadow-2xs group"
+                title="Abrir Menú de Paneles por Rol"
               >
-                <span>{config?.siteName ? config.siteName.charAt(0) : 'S'}</span>
-              </div>
+                <Menu className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                <span className="hidden xl:inline text-xs font-bold text-slate-700 group-hover:text-purple-700">
+                  Paneles
+                </span>
+              </button>
             )}
-            
-            {(!config?.logoUrl || config.logoUrl.trim() === '') && (
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <span className="font-extrabold text-xl tracking-tight text-slate-900">
-                    {config?.siteName || 'SANPI'}
-                  </span>
-                  <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider border border-slate-200">
-                    {config?.siteTagline || 'MARKET'}
-                  </span>
+
+            {/* Logo Brand: Minimalist Sanpi / Custom Uploaded Brand */}
+            <div
+              className="flex items-center gap-2.5 cursor-pointer group shrink-0"
+              onClick={() => handleNav('explore')}
+              id="navbar-logo"
+            >
+              {config?.logoUrl ? (
+                <img
+                  src={config.logoUrl}
+                  alt={config.siteName || 'Sanpi'}
+                  referrerPolicy="no-referrer"
+                  style={{ height: `${config.logoHeight || 40}px` }}
+                  className="max-w-[180px] object-contain group-hover:scale-105 transition-transform duration-200"
+                />
+              ) : (
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform duration-200 text-white font-black text-xl italic tracking-tighter"
+                  style={{ backgroundColor: config?.primaryColor || '#7C3AED' }}
+                >
+                  <span>{config?.siteName ? config.siteName.charAt(0) : 'S'}</span>
                 </div>
-                <p className="text-[11px] text-slate-500 font-medium tracking-tight hidden sm:block truncate max-w-[200px]">
-                  {config?.siteSlogan || 'La Magia de comprar Online'}
-                </p>
-              </div>
-            )}
+              )}
+              
+              {(!config?.logoUrl || config.logoUrl.trim() === '') && (
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-extrabold text-xl tracking-tight text-slate-900">
+                      {config?.siteName || 'SANPI'}
+                    </span>
+                    <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider border border-slate-200">
+                      {config?.siteTagline || 'MARKET'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 font-medium tracking-tight hidden sm:block truncate max-w-[200px]">
+                    {config?.siteSlogan || 'La Magia de comprar Online'}
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Regional Location Selector */}
@@ -473,16 +495,45 @@ export const Navbar: React.FC<NavbarProps> = ({
                         onClick={() => handleNav('dropship')}
                         className="w-full text-left px-3 py-2 rounded-xl hover:bg-slate-50 text-slate-700 hover:text-slate-900 flex items-center gap-2.5 transition-colors"
                       >
-                        <Sparkles className="w-4 h-4 text-slate-500" />
+                        <Sparkles className="w-4 h-4 text-purple-500" />
                         <span>Hub Dropshipping RD</span>
+                      </button>
+
+                      <button
+                        onClick={() => handleNav('supplier')}
+                        className="w-full text-left px-3 py-2 rounded-xl hover:bg-purple-50 text-purple-700 flex items-center gap-2.5 transition-colors font-medium"
+                      >
+                        <Package className="w-4 h-4 text-purple-600" />
+                        <span>Portal Proveedor Mayorista</span>
+                      </button>
+
+                      <button
+                        onClick={() => handleNav('carrier')}
+                        className="w-full text-left px-3 py-2 rounded-xl hover:bg-blue-50 text-blue-700 flex items-center gap-2.5 transition-colors font-medium"
+                      >
+                        <Truck className="w-4 h-4 text-blue-600" />
+                        <span>Empresas de Transporte & API</span>
                       </button>
 
                       <button
                         onClick={() => handleNav('track')}
                         className="w-full text-left px-3 py-2 rounded-xl hover:bg-slate-50 text-slate-700 hover:text-slate-900 flex items-center gap-2.5 transition-colors"
                       >
-                        <Truck className="w-4 h-4 text-slate-500" />
+                        <ShieldCheck className="w-4 h-4 text-slate-500" />
                         <span>Rastrear Mis Envíos</span>
+                      </button>
+
+                      <button
+                        onClick={() => handleNav('accounting')}
+                        className="w-full text-left px-3 py-2 rounded-xl hover:bg-emerald-50 text-emerald-800 flex items-center justify-between transition-colors font-bold"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <Calculator className="w-4 h-4 text-emerald-600" />
+                          <span>Contabilidad & Reportes</span>
+                        </div>
+                        <span className="text-[9px] bg-emerald-100 text-emerald-900 px-1.5 py-0.5 rounded font-black">
+                          PDF/XLS
+                        </span>
                       </button>
 
                       {superAdmin && (
@@ -590,12 +641,34 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
 
             <button
+              onClick={() => handleNav('supplier')}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg transition-colors ${
+                currentView === 'supplier' ? 'text-purple-900 bg-purple-100 font-bold shadow-2xs border border-purple-300' : 'text-purple-700 hover:text-purple-900 hover:bg-purple-50'
+              }`}
+              title="Panel para Proveedores Mayoristas (Subir artículos con precio base oculto)"
+            >
+              <Package className="w-3.5 h-3.5 text-purple-600" />
+              <span>Proveedores Mayoristas</span>
+            </button>
+
+            <button
+              onClick={() => handleNav('carrier')}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg transition-colors ${
+                currentView === 'carrier' ? 'text-blue-900 bg-blue-100 font-bold shadow-2xs border border-blue-300' : 'text-blue-700 hover:text-blue-900 hover:bg-blue-50'
+              }`}
+              title="Dashboard de Empresas de Transporte con API y Manifiestos"
+            >
+              <Truck className="w-3.5 h-3.5 text-blue-600" />
+              <span>Transportistas & API</span>
+            </button>
+
+            <button
               onClick={() => handleNav('track')}
               className={`flex items-center gap-1.5 px-3 py-1 rounded-lg transition-colors ${
                 currentView === 'track' ? 'text-slate-900 bg-white font-bold shadow-2xs border border-slate-200' : 'text-slate-700 hover:text-slate-900 hover:bg-slate-200/70'
               }`}
             >
-              <Truck className="w-3.5 h-3.5 text-emerald-600" />
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
               <span>Rastreo Sacha Pack</span>
             </button>
 

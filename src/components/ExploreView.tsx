@@ -90,7 +90,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
     return articles
       .filter((art) => {
         if (!validStoreIds.has(art.storeId)) return false;
-        if (art.status !== 'aprobado' || !art.isPublic) return false;
+        if (art.status !== 'aprobado' || !art.isPublic || art.visibility === 'dropshippers_only' || art.isProviderProduct) return false;
         return (art.compareAtPrice && art.compareAtPrice > art.price) || (art.rating && art.rating >= 4.8);
       })
       .slice(0, 6);
@@ -101,7 +101,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
     return articles
       .filter((art) => {
         if (!validStoreIds.has(art.storeId)) return false;
-        if (art.status !== 'aprobado' || !art.isPublic) return false;
+        if (art.status !== 'aprobado' || !art.isPublic || art.visibility === 'dropshippers_only' || art.isProviderProduct) return false;
 
         // Category filter
         if (selectedCategory !== 'Todas' && art.category !== selectedCategory) return false;

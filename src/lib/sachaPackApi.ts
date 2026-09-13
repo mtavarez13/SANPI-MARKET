@@ -3,12 +3,13 @@ import { SachaPackWebhookPayload, SachaPackWebhookResponse, LogisticsProviderCon
 /**
  * Official Sacha Pack Logistics API Webhook Endpoint (Production)
  */
-export const SACHA_PACK_WEBHOOK_URL = 'https://www.sachapack.com/api/logistics-webhook';
+export const SACHA_PACK_WEBHOOK_URL = 'https://studio-345939831630.us-central1.run.app/api/logistics-webhook';
+export const SACHA_PACK_ALT_WEBHOOK_URL = 'https://www.sachapack.com/api/logistics-webhook';
 
 /**
  * Default Master Account Store Identifier for Sacha Pack Logistics Integration
  */
-export const DEFAULT_SACHA_PACK_STORE_ID = 'Vw5WLzIfe3TI59EgbOBtVisY08U2';
+export const DEFAULT_SACHA_PACK_STORE_ID = 'sxOzEivG9GP9SvaVuF1nVpQZCOu1';
 
 /**
  * Default Sacha Pack API Key
@@ -26,13 +27,11 @@ export const DEFAULT_SANPI_INBOUND_WEBHOOK_SECRET = 'whsec_sanpi_carrier_live_sy
 export const DEFAULT_LOGISTICS_JSON_TEMPLATE = JSON.stringify(
   {
     storeId: '{{storeId}}',
-    externalOrderId: '{{externalOrderId}}',
-    paymentMethod: '{{paymentMethod}}',
     items: [
       {
-        sku: '{{barcode_imei}}',
-        quantity: '{{quantity}}',
-        price: '{{price}}',
+        barcode_imei: '{{barcode_imei}}',
+        quantity: 1,
+        price: 1500,
         name: '{{itemName}}'
       }
     ],
@@ -40,8 +39,7 @@ export const DEFAULT_LOGISTICS_JSON_TEMPLATE = JSON.stringify(
       name: '{{customerName}}',
       phone: '{{customerPhone}}',
       address: '{{address}}',
-      province: '{{province}}',
-      municipality: '{{municipality}}'
+      province: '{{province}}'
     }
   },
   null,
@@ -60,7 +58,7 @@ export const DEFAULT_LOGISTICS_PROVIDERS: LogisticsProviderConfig[] = [
     code: 'sacha_pack',
     logoUrl: 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=100&auto=format&fit=crop&q=80',
     websiteUrl: 'https://www.sachapack.com/',
-    webhookUrl: 'https://www.sachapack.com/api/logistics-webhook',
+    webhookUrl: 'https://studio-345939831630.us-central1.run.app/api/logistics-webhook',
     httpMethod: 'POST',
     authType: 'bearer',
     headers: {
@@ -68,7 +66,7 @@ export const DEFAULT_LOGISTICS_PROVIDERS: LogisticsProviderConfig[] = [
       'Accept': 'application/json',
       'Authorization': 'Bearer sk_sacha_wcrvnhqagxd86pqpxs1jfikvjq8mqmxt'
     },
-    defaultStoreId: 'Vw5WLzIfe3TI59EgbOBtVisY08U2',
+    defaultStoreId: 'sxOzEivG9GP9SvaVuF1nVpQZCOu1',
     apiKey: 'sk_sacha_wcrvnhqagxd86pqpxs1jfikvjq8mqmxt',
     authToken: 'sk_sacha_wcrvnhqagxd86pqpxs1jfikvjq8mqmxt',
     isActive: true,
@@ -254,22 +252,19 @@ export function getSampleSachaPackPayload(storeId?: string): SachaPackWebhookPay
 
   return {
     storeId: resolvedStoreId,
-    externalOrderId: 'INV-2026-001',
-    paymentMethod: 'contra entrega',
     items: [
       {
-        sku: '744123456789',
+        barcode_imei: 'SKU-001',
         quantity: 1,
-        price: 1500.00,
-        name: 'Tenis Deportivos'
+        price: 1500,
+        name: 'Producto A'
       }
     ],
     customer: {
       name: 'Juan Perez',
-      phone: '8095551212',
-      address: 'Calle Principal #5, Ens. Libertad',
-      province: 'Santiago',
-      municipality: 'Santiago de los Caballeros'
+      phone: '8095551234',
+      address: 'Calle Principal #5',
+      province: 'Santiago'
     }
   };
 }

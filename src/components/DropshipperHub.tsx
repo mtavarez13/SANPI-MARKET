@@ -58,6 +58,14 @@ export const DropshipperHub: React.FC<DropshipperHubProps> = ({
   const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
   const [copiedStoreLink, setCopiedStoreLink] = useState(false);
   const [storeSettingsOpen, setStoreSettingsOpen] = useState(false);
+  const [showOnlyWholesaleProviders, setShowOnlyWholesaleProviders] = useState(false);
+
+  // Import to Store modal state
+  const [importModalArticle, setImportModalArticle] = useState<Article | null>(null);
+  const [customRetailPrice, setCustomRetailPrice] = useState<number>(2500);
+  const [selectedTargetStoreId, setSelectedTargetStoreId] = useState<string>('');
+  const [isImporting, setIsImporting] = useState(false);
+  const [importSuccessMsg, setImportSuccessMsg] = useState<string | null>(null);
 
   // User's own store
   const userStore = stores.find(
@@ -69,10 +77,11 @@ export const DropshipperHub: React.FC<DropshipperHubProps> = ({
 
   // Filter dropshipping pool articles
   const dropshipArticles = articles.filter(a => {
-    const matchesSearch = a.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      a.description.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesSearch = (a.title || a.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (a.description || '').toLowerCase().includes(searchQuery.toLowerCase());
     const matchesCat = selectedCategory === 'all' || a.category === selectedCategory;
-    return matchesSearch && matchesCat && a.status === 'aprobado';
+    const matchesWholesale = !showOnlyWholesaleProviders || a.isProviderProduct === true || a.visibility === 'dropshippers_only';
+    return matchesSearch && matchesCat && matchesWholesale && (a.status === 'aprobado' || a.isProviderProduct);
   });
 
   const categories = ['all', ...Array.from(new Set(articles.map(a => a.category)))];
@@ -246,10 +255,36 @@ export const DropshipperHub: React.FC<DropshipperHubProps> = ({
       {/* TAB 1: WHOLESALE CATALOG */}
       {activeTab === 'catalog' && (
         <div className="space-y-6">
-          
+          {/* Notification banner if imported */}
+          {importSuccessMsg && (
+            <div className="p-4 rounded-2xl bg-emerald-950/80 border border-emerald-500/50 text-emerald-200 flex items-center justify-between text-xs sm:text-sm">
+              <div className="flex items-center space-x-2">
+                <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                <span>{importSuccessMsg}</span>
+              </div>
+              <button
+                onClick={() => setImportSuccessMsg(null)}
+                className="text-emerald-400 font-bold uppercase text-xs"
+              >
+                Cerrar
+              </button>
+            </div>
+          )}
+
           {/* Filters Bar */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto pb-2 sm:pb-0">
+              <button
+                onClick={() => setShowOnlyWholesaleProviders(!showOnlyWholesaleProviders)}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center space-x-1.5 ${
+                  showOnlyWholesaleProviders
+                    ? 'bg-amber-500 text-slate-950 shadow-md font-black'
+                    : 'bg-slate-900 text-amber-400 border border-amber-500/40 hover:bg-slate-800'
+                }`}
+              >
+                <span>⭐ Exclusivos Proveedores Mayoristas</span>
+              </button>
+
               {categories.map((cat) => (
                 <button
                   key={cat}
@@ -279,27 +314,34 @@ export const DropshipperHub: React.FC<DropshipperHubProps> = ({
           {/* Product Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
             {dropshipArticles.map((art) => {
-              const wholesalePrice = art.wholesalePrice || Math.round(art.price * 0.65);
-              const retailPrice = art.price;
+              const wholesalePrice = art.baseCost || art.wholesalePrice || Math.round(art.price * 0.65);
+              const retailPrice = art.suggestedRetailPrice || art.price;
               const estimatedProfit = retailPrice - wholesalePrice;
-              const profitPercent = Math.round((estimatedProfit / wholesalePrice) * 100);
+              const profitPercent = wholesalePrice > 0 ? Math.round((estimatedProfit / wholesalePrice) * 100) : 50;
 
               return (
                 <div
                   key={art.id}
-                  className="bg-slate-900 border border-slate-800 hover:border-purple-500/50 rounded-3xl overflow-hidden transition-all duration-300 shadow-xl flex flex-col justify-between group"
+                  className={`bg-slate-900 border ${art.isProviderProduct ? 'border-amber-500/50 shadow-amber-500/10' : 'border-slate-800 hover:border-purple-500/50'} rounded-3xl overflow-hidden transition-all duration-300 shadow-xl flex flex-col justify-between group`}
                 >
                   <div>
                     {/* Image & Badges */}
                     <div className="relative h-52 overflow-hidden bg-slate-950">
                       <img
-                        src={art.image}
-                        alt={art.name}
+                        src={art.image || art.images?.[0]}
+                        alt={art.name || art.title}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                       />
-                      <div className="absolute top-3 left-3 bg-purple-600/90 backdrop-blur-md text-white text-[10px] font-black px-2.5 py-1 rounded-lg border border-purple-400/30">
-                        POOL MAYORISTA
-                      </div>
+                      {art.isProviderProduct ? (
+                        <div className="absolute top-3 left-3 bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 text-[10px] font-black px-2.5 py-1 rounded-lg shadow-md flex items-center space-x-1">
+                          <span>⭐ PROVEEDOR MAYORISTA</span>
+                        </div>
+                      ) : (
+                        <div className="absolute top-3 left-3 bg-purple-600/90 backdrop-blur-md text-white text-[10px] font-black px-2.5 py-1 rounded-lg border border-purple-400/30">
+                          POOL MAYORISTA
+                        </div>
+                      )}
+
                       <div className="absolute top-3 right-3 bg-emerald-600 text-white text-[10px] font-black px-2.5 py-1 rounded-lg shadow">
                         +{profitPercent}% MARGEN
                       </div>
@@ -307,11 +349,11 @@ export const DropshipperHub: React.FC<DropshipperHubProps> = ({
 
                     {/* Content */}
                     <div className="p-5 space-y-3">
-                      <span className="text-[10px] font-bold text-purple-400 uppercase tracking-wider">
-                        {art.category} • {art.storeName}
+                      <span className="text-[10px] font-bold text-purple-400 uppercase tracking-wider block truncate">
+                        {art.category} • {art.supplierName || art.storeName}
                       </span>
                       <h3 className="font-extrabold text-white text-base leading-snug line-clamp-2">
-                        {art.name}
+                        {art.title || art.name}
                       </h3>
                       <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed">
                         {art.description}
@@ -321,7 +363,7 @@ export const DropshipperHub: React.FC<DropshipperHubProps> = ({
                       <div className="bg-slate-950/80 rounded-2xl p-3.5 border border-slate-800 grid grid-cols-3 gap-2 text-center text-xs">
                         <div>
                           <span className="text-[10px] text-slate-500 font-semibold block">Costo Base</span>
-                          <span className="font-bold text-slate-300">RD$ {wholesalePrice.toLocaleString()}</span>
+                          <span className="font-bold text-amber-400">RD$ {wholesalePrice.toLocaleString()}</span>
                         </div>
                         <div>
                           <span className="text-[10px] text-slate-500 font-semibold block">PVP Sugerido</span>
@@ -335,14 +377,26 @@ export const DropshipperHub: React.FC<DropshipperHubProps> = ({
                     </div>
                   </div>
 
-                  {/* Actions */}
-                  <div className="p-5 pt-0">
+                  {/* Actions (Landing Page + Add to Store Catalog) */}
+                  <div className="p-5 pt-0 space-y-2">
                     <button
                       onClick={() => onOpenGenerator(art)}
-                      className="w-full py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl text-xs font-black shadow-lg shadow-purple-600/20 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                      className="w-full py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl text-xs font-black shadow-lg shadow-purple-600/20 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                     >
-                      <Zap className="w-4 h-4" />
-                      Crear Landing Page de este Producto
+                      <Zap className="w-3.5 h-3.5" />
+                      <span>Crear Landing Page</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setImportModalArticle(art);
+                        setCustomRetailPrice(art.suggestedRetailPrice || Math.round((art.baseCost || art.price) * 1.8));
+                        setSelectedTargetStoreId(userStore?.id || stores[0]?.id || '');
+                      }}
+                      className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-purple-300 hover:text-white border border-purple-500/30 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <StoreIcon className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Agregar a Catálogo de Mi Tienda</span>
                     </button>
                   </div>
                 </div>
@@ -660,6 +714,136 @@ export const DropshipperHub: React.FC<DropshipperHubProps> = ({
           }
         }}
       />
+
+      {/* Modal: Import Wholesale Product to Store Catalog */}
+      {importModalArticle && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-5 text-white">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center space-x-2">
+                <span className="p-2 rounded-lg bg-amber-500/20 text-amber-400">
+                  <StoreIcon className="w-5 h-5" />
+                </span>
+                <div>
+                  <h3 className="text-base font-black text-white">Agregar a Catálogo de Tienda</h3>
+                  <p className="text-xs text-slate-400">Publicar artículo mayorista en tu e-commerce</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setImportModalArticle(null)}
+                className="text-slate-400 hover:text-white text-lg font-bold p-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Product Summary */}
+            <div className="flex items-center space-x-3 p-3 rounded-2xl bg-slate-950 border border-slate-800">
+              <img
+                src={importModalArticle.image || importModalArticle.images?.[0]}
+                alt={importModalArticle.title || importModalArticle.name}
+                className="w-14 h-14 rounded-xl object-cover"
+              />
+              <div className="space-y-0.5 min-w-0 flex-1">
+                <h4 className="text-xs font-bold text-white truncate">
+                  {importModalArticle.title || importModalArticle.name}
+                </h4>
+                <p className="text-[11px] text-amber-400 font-semibold">
+                  Costo Base Proveedor: RD$ {(importModalArticle.baseCost || importModalArticle.price).toLocaleString()}
+                </p>
+                <p className="text-[10px] text-slate-400">
+                  Proveedor: {importModalArticle.supplierName || importModalArticle.storeName}
+                </p>
+              </div>
+            </div>
+
+            {/* Select Destination Store */}
+            <div className="space-y-1.5 text-xs">
+              <label className="block font-bold text-slate-300">Seleccionar Tienda Destino</label>
+              <select
+                value={selectedTargetStoreId}
+                onChange={(e) => setSelectedTargetStoreId(e.target.value)}
+                className="w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-semibold focus:outline-none focus:border-purple-500"
+              >
+                {stores.map(st => (
+                  <option key={st.id} value={st.id}>
+                    {st.name} (sanpi.com.do/{st.slug})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Price configuration */}
+            <div className="space-y-3 p-4 rounded-2xl bg-purple-950/40 border border-purple-800/40 text-xs">
+              <div>
+                <label className="block font-bold text-purple-200 mb-1">
+                  Tu Precio de Venta al Público (PVP en RD$)
+                </label>
+                <input
+                  type="number"
+                  min={(importModalArticle.baseCost || importModalArticle.price) + 100}
+                  value={customRetailPrice}
+                  onChange={(e) => setCustomRetailPrice(Number(e.target.value))}
+                  className="w-full px-3 py-2 bg-slate-900 border border-purple-400/50 rounded-xl text-base font-black text-emerald-400 focus:outline-none"
+                />
+              </div>
+
+              {/* Profit preview */}
+              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-purple-800/40 text-center">
+                <div className="p-2 rounded-lg bg-slate-900/80">
+                  <span className="text-[10px] text-slate-400 uppercase font-bold block">Tu Ganancia Neta</span>
+                  <span className="text-sm font-black text-emerald-400">
+                    +RD$ {(customRetailPrice - (importModalArticle.baseCost || importModalArticle.price)).toLocaleString()}
+                  </span>
+                </div>
+                <div className="p-2 rounded-lg bg-slate-900/80">
+                  <span className="text-[10px] text-slate-400 uppercase font-bold block">Margen Comercial</span>
+                  <span className="text-sm font-black text-purple-300">
+                    {Math.round(((customRetailPrice - (importModalArticle.baseCost || importModalArticle.price)) / customRetailPrice) * 100)}%
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center justify-end space-x-3 pt-2">
+              <button
+                onClick={() => setImportModalArticle(null)}
+                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={async () => {
+                  if (!importModalArticle || !selectedTargetStoreId) return;
+                  setIsImporting(true);
+                  try {
+                    const imported = await sanpiManager.importProviderArticleToStore(
+                      importModalArticle.id,
+                      selectedTargetStoreId,
+                      customRetailPrice
+                    );
+                    if (imported) {
+                      setImportSuccessMsg(`¡"${imported.title}" importado con éxito a tu tienda! Ya está público en tu catálogo.`);
+                      setTimeout(() => setImportSuccessMsg(null), 6000);
+                      setImportModalArticle(null);
+                    }
+                  } catch (err: any) {
+                    alert(`Error al importar: ${err?.message || 'Error de conexión'}`);
+                  } finally {
+                    setIsImporting(false);
+                  }
+                }}
+                disabled={isImporting}
+                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-xs shadow-lg transition flex items-center space-x-1.5"
+              >
+                {isImporting ? <span className="animate-spin">⏳</span> : <CheckCircle2 className="w-4 h-4" />}
+                <span>{isImporting ? 'Agregando...' : 'Confirmar y Publicar en Mi Tienda'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

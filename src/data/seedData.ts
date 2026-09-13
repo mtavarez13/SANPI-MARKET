@@ -1,4 +1,4 @@
-import { Article, Delivery, Expense, MarketplaceSubscription, Store, Transaction, LandingPageConfig, DropshipItem, StoreReferralRecord, SanpiPlan } from '../types';
+import { Article, Delivery, Expense, MarketplaceSubscription, Store, Transaction, LandingPageConfig, DropshipItem, StoreReferralRecord, SanpiPlan, CarrierUser } from '../types';
 
 export const INITIAL_STORES: Store[] = [
   {
@@ -31,7 +31,7 @@ export const INITIAL_STORES: Store[] = [
     province: 'Distrito Nacional',
     status: 'approved',
     plan: 'pro',
-    sachaPackStoreId: 'Vw5WLzIfe3TI59EgbOBtVisY08U2',
+    sachaPackStoreId: 'sxOzEivG9GP9SvaVuF1nVpQZCOu1',
     referralCode: 'SANPI-TECHZONE',
     referralDiscountPercent: 15,
     referralDiscountStatus: 'activo',
@@ -71,7 +71,7 @@ export const INITIAL_STORES: Store[] = [
     province: 'Santo Domingo',
     status: 'approved',
     plan: 'elite',
-    sachaPackStoreId: 'Vw5WLzIfe3TI59EgbOBtVisY08U2',
+    sachaPackStoreId: 'sxOzEivG9GP9SvaVuF1nVpQZCOu1',
     referralCode: 'SANPI-MODACARIBE',
     referredByStoreId: 'store_1',
     referredByStoreName: 'TechZone Quisqueya',
@@ -114,7 +114,7 @@ export const INITIAL_STORES: Store[] = [
     province: 'Santiago',
     status: 'approved',
     plan: 'basic',
-    sachaPackStoreId: 'Vw5WLzIfe3TI59EgbOBtVisY08U2',
+    sachaPackStoreId: 'sxOzEivG9GP9SvaVuF1nVpQZCOu1',
     referralCode: 'SANPI-AUTOCIB',
     referralDiscountPercent: 20,
     referralDiscountStatus: 'activo',
@@ -154,7 +154,7 @@ export const INITIAL_STORES: Store[] = [
     province: 'La Altagracia',
     status: 'approved',
     plan: 'pro',
-    sachaPackStoreId: 'Vw5WLzIfe3TI59EgbOBtVisY08U2',
+    sachaPackStoreId: 'sxOzEivG9GP9SvaVuF1nVpQZCOu1',
     referralCode: 'SANPI-HOGARPC',
     referredByStoreId: 'store_1',
     referredByStoreName: 'TechZone Quisqueya',
@@ -197,7 +197,7 @@ export const INITIAL_STORES: Store[] = [
     province: 'Distrito Nacional',
     status: 'approved',
     plan: 'elite',
-    sachaPackStoreId: 'Vw5WLzIfe3TI59EgbOBtVisY08U2',
+    sachaPackStoreId: 'sxOzEivG9GP9SvaVuF1nVpQZCOu1',
     createdAt: '2026-01-01T08:00:00Z'
   }
 ];
@@ -619,6 +619,215 @@ export const INITIAL_ARTICLES: Article[] = [
     isDropshipping: false, // EXCLUSIVO DE TIENDA - NO DROPSHIPPING
     views: 480,
     createdAt: '2026-03-12T14:00:00Z'
+  },
+  // --- ARTÍCULOS DE PROVEEDORES MAYORISTAS (Ocultos en e-commerce público, visibles solo para Dropshippers a precio base) ---
+  {
+    id: 'art_prov_1',
+    storeId: 'store_prov_1',
+    storeName: 'Importadora Mayorista del Caribe SRL',
+    title: 'Proyector Inteligente Portátil Mini Cinema 4K Android WiFi + Parlante HiFi',
+    name: 'Proyector Inteligente Mini Cinema 4K Android',
+    slug: 'proyector-mini-cinema-4k-android',
+    description: 'Proyector portátil de alta luminosidad 8500 lúmenes con sistema Android 11 integrado, Netflix y YouTube nativo, resolución decodificada 4K, ajuste trapezoidal automático y conectividad WiFi dual 5G/2.4G. Producto top en tendencia.',
+    category: 'Tecnología & Gadgets',
+    subcategory: 'Proyectores & Video',
+    price: 1850, // PRECIO BASE MAYORISTA
+    wholesalePrice: 1850,
+    baseCost: 1850,
+    suggestedRetailPrice: 3800,
+    compareAtPrice: 4200,
+    costPerItem: 1850,
+    barcode_imei: '772910293819',
+    images: [
+      'https://images.unsplash.com/photo-1517604931442-7e0c8ed2963c?w=800&auto=format&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1461151304267-38535e780c79?w=800&auto=format&fit=crop&q=80'
+    ],
+    image: 'https://images.unsplash.com/photo-1517604931442-7e0c8ed2963c?w=800&auto=format&fit=crop&q=80',
+    gallery: [
+      'https://images.unsplash.com/photo-1517604931442-7e0c8ed2963c?w=800&auto=format&fit=crop&q=80'
+    ],
+    variants: [
+      { name: 'Color', options: ['Blanco Polar', 'Negro Mate'] }
+    ],
+    inventory: 140,
+    stock: 140,
+    rating: 4.9,
+    reviewCount: 38,
+    isFeatured: true,
+    specifications: {
+      'Resolución': 'Nativo 1080p FHD (Decodifica 4K)',
+      'Luminosidad': '8500 Lúmenes ANSI',
+      'Sistema': 'Android 11 con Play Store preinstalado',
+      'Audio': 'Parlante HiFi estéreo 5W Dolby',
+      'Garantía Mayorista': '6 meses directa en almacén Santo Domingo'
+    },
+    reviews: [],
+    status: 'aprobado',
+    isPublic: false, // OCULTO EN TIENDA GENERAL
+    visibility: 'dropshippers_only', // SOLO PARA DROPSHIPPERS
+    isProviderProduct: true,
+    isDropshipping: true,
+    supplierId: 'prov_importadora_caribe',
+    supplierName: 'Importadora Mayorista del Caribe SRL',
+    supplierEmail: 'importadoracaribe@mayoristas.do',
+    addedToStoreSlugs: [],
+    views: 890,
+    createdAt: '2026-03-01T08:00:00Z'
+  },
+  {
+    id: 'art_prov_2',
+    storeId: 'store_prov_2',
+    storeName: 'Distribuidora Quisqueya Tech',
+    title: 'Cámara de Seguridad Solar 360° WiFi 4G para Exteriores FHD con Visión Nocturna Color',
+    name: 'Cámara de Seguridad Solar 360° WiFi FHD',
+    slug: 'camara-seguridad-solar-360-wifi',
+    description: 'Cámara domo PTZ 100% inalámbrica alimentada por panel solar de silicio monocristalino y batería de litio recargable. Detección humana PIR con sirena disuasoria, audio bidireccional y visión nocturna a todo color.',
+    category: 'Seguridad & Vigilancia',
+    subcategory: 'Cámaras Solares',
+    price: 1250, // PRECIO BASE PROVEEDOR
+    wholesalePrice: 1250,
+    baseCost: 1250,
+    suggestedRetailPrice: 2850,
+    compareAtPrice: 3200,
+    costPerItem: 1250,
+    barcode_imei: '661928374819',
+    images: [
+      'https://images.unsplash.com/photo-1557597774-9d273605dfa9?w=800&auto=format&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1520697830682-bbb6e85e2b0b?w=800&auto=format&fit=crop&q=80'
+    ],
+    image: 'https://images.unsplash.com/photo-1557597774-9d273605dfa9?w=800&auto=format&fit=crop&q=80',
+    gallery: [
+      'https://images.unsplash.com/photo-1557597774-9d273605dfa9?w=800&auto=format&fit=crop&q=80'
+    ],
+    variants: [
+      { name: 'Conectividad', options: ['WiFi 2.4GHz', 'Ranura SIM 4G LTE'] }
+    ],
+    inventory: 95,
+    stock: 95,
+    rating: 4.8,
+    reviewCount: 27,
+    isFeatured: true,
+    specifications: {
+      'Resolución': '3 Megapíxeles 2K Full HD',
+      'Alimentación': 'Panel Solar 8W + Batería 12,000mAh',
+      'Rotación': '355° Horizontal, 90° Vertical',
+      'Resistencia': 'Certificación IP66 Intemperie',
+      'App Móvil': 'iCSee / Tuya Smart compatible en RD'
+    },
+    reviews: [],
+    status: 'aprobado',
+    isPublic: false,
+    visibility: 'dropshippers_only',
+    isProviderProduct: true,
+    isDropshipping: true,
+    supplierId: 'prov_quisqueya_tech',
+    supplierName: 'Distribuidora Quisqueya Tech',
+    supplierEmail: 'ventas@quisqueyatech.do',
+    addedToStoreSlugs: [],
+    views: 640,
+    createdAt: '2026-03-02T10:00:00Z'
+  },
+  {
+    id: 'art_prov_3',
+    storeId: 'store_prov_3',
+    storeName: 'Almacenes Mayoristas Santo Domingo',
+    title: 'Aspiradora Inalámbrica Multifunción de Auto y Hogar 120W Ciclónica Turbo Portátil',
+    name: 'Aspiradora Inalámbrica 120W Portátil',
+    slug: 'aspiradora-inalambrica-120w-portatil',
+    description: 'Potente aspiradora de mano sin cables con succión de 9000Pa, filtro HEPA lavable, batería de larga duración con carga Tipo-C y set completo de boquillas y cepillos para limpiar autos, sofás y teclados.',
+    category: 'Hogar & Confort',
+    subcategory: 'Limpieza Inteligente',
+    price: 650, // PRECIO BASE PROVEEDOR
+    wholesalePrice: 650,
+    baseCost: 650,
+    suggestedRetailPrice: 1650,
+    compareAtPrice: 1950,
+    costPerItem: 650,
+    barcode_imei: '551829384918',
+    images: [
+      'https://images.unsplash.com/photo-1558317374-067fb5f30001?w=800&auto=format&fit=crop&q=80'
+    ],
+    image: 'https://images.unsplash.com/photo-1558317374-067fb5f30001?w=800&auto=format&fit=crop&q=80',
+    gallery: [
+      'https://images.unsplash.com/photo-1558317374-067fb5f30001?w=800&auto=format&fit=crop&q=80'
+    ],
+    variants: [
+      { name: 'Color', options: ['Negro Obsidian', 'Verde Militar'] }
+    ],
+    inventory: 310,
+    stock: 310,
+    rating: 4.7,
+    reviewCount: 45,
+    isFeatured: false,
+    specifications: {
+      'Potencia': 'Motor Turbo Ciclónico 120 Watts',
+      'Succión': '9000 Pa fuerza de arrastre',
+      'Filtro': 'HEPA lavable reutilizable',
+      'Carga': 'Puerto USB Tipo-C (2.5 horas)'
+    },
+    reviews: [],
+    status: 'aprobado',
+    isPublic: false,
+    visibility: 'dropshippers_only',
+    isProviderProduct: true,
+    isDropshipping: true,
+    supplierId: 'prov_almacenes_sd',
+    supplierName: 'Almacenes Mayoristas Santo Domingo',
+    supplierEmail: 'pedidos@mayoristasrd.do',
+    addedToStoreSlugs: [],
+    views: 1120,
+    createdAt: '2026-03-03T11:00:00Z'
+  },
+  {
+    id: 'art_prov_4',
+    storeId: 'store_prov_4',
+    storeName: 'Global Import Dominicana',
+    title: 'Pistola Masajeadora Muscular de Percusión Pro 6 Velocidades + 4 Cabezales Terapéuticos',
+    name: 'Pistola Masajeadora Muscular Pro 6 Velocidades',
+    slug: 'pistola-masajeadora-muscular-pro',
+    description: 'Pistola de masaje de percusión profunda para alivio del dolor muscular, fatiga y recuperación atlética. Motor brushless silencioso de alto torque, 6 niveles de intensidad y 4 cabezales intercambiables.',
+    category: 'Salud & Belleza',
+    subcategory: 'Terapia Muscular',
+    price: 790, // PRECIO BASE PROVEEDOR
+    wholesalePrice: 790,
+    baseCost: 790,
+    suggestedRetailPrice: 1950,
+    compareAtPrice: 2400,
+    costPerItem: 790,
+    barcode_imei: '441928374619',
+    images: [
+      'https://images.unsplash.com/photo-1518611012118-696072aa579a?w=800&auto=format&fit=crop&q=80'
+    ],
+    image: 'https://images.unsplash.com/photo-1518611012118-696072aa579a?w=800&auto=format&fit=crop&q=80',
+    gallery: [
+      'https://images.unsplash.com/photo-1518611012118-696072aa579a?w=800&auto=format&fit=crop&q=80'
+    ],
+    variants: [
+      { name: 'Color', options: ['Gris Titanio', 'Rojo Ferrari'] }
+    ],
+    inventory: 180,
+    stock: 180,
+    rating: 4.9,
+    reviewCount: 52,
+    isFeatured: true,
+    specifications: {
+      'Velocidades': '6 Niveles (1800 a 3200 RPM)',
+      'Cabezales': '4 (Esférico, Bala, Plano, Horquilla)',
+      'Nivel de Ruido': '< 45 dB ultra silencioso',
+      'Batería': '2000 mAh (hasta 4 horas de uso)'
+    },
+    reviews: [],
+    status: 'aprobado',
+    isPublic: false,
+    visibility: 'dropshippers_only',
+    isProviderProduct: true,
+    isDropshipping: true,
+    supplierId: 'prov_global_import',
+    supplierName: 'Global Import Dominicana',
+    supplierEmail: 'contacto@globalimport.do',
+    addedToStoreSlugs: [],
+    views: 940,
+    createdAt: '2026-03-04T12:00:00Z'
   }
 ];
 
@@ -652,7 +861,7 @@ export const INITIAL_DELIVERIES: Delivery[] = [
     sachaPackStatus: 'enviado',
     sachaPackDispatchedAt: '2026-07-28T14:20:05Z',
     sachaPackPayload: {
-      storeId: 'Vw5WLzIfe3TI59EgbOBtVisY08U2',
+      storeId: 'sxOzEivG9GP9SvaVuF1nVpQZCOu1',
       externalOrderId: 'ORD-9021',
       items: [{ barcode_imei: '1234567890', quantity: 1, price: 1850 }],
       customer: {
@@ -709,7 +918,7 @@ export const INITIAL_DELIVERIES: Delivery[] = [
     sachaPackStatus: 'enviado',
     sachaPackDispatchedAt: '2026-07-29T11:00:04Z',
     sachaPackPayload: {
-      storeId: 'Vw5WLzIfe3TI59EgbOBtVisY08U2',
+      storeId: 'sxOzEivG9GP9SvaVuF1nVpQZCOu1',
       externalOrderId: 'ORD-9022',
       items: [{ barcode_imei: '849201928374', quantity: 1, price: 2650 }],
       customer: {
@@ -753,7 +962,7 @@ export const INITIAL_DELIVERIES: Delivery[] = [
     sachaPackStatus: 'enviado',
     sachaPackDispatchedAt: '2026-07-27T16:10:05Z',
     sachaPackPayload: {
-      storeId: 'Vw5WLzIfe3TI59EgbOBtVisY08U2',
+      storeId: 'sxOzEivG9GP9SvaVuF1nVpQZCOu1',
       externalOrderId: 'ORD-12345',
       items: [{ barcode_imei: '1234567890', quantity: 1, price: 1500 }],
       customer: {
@@ -797,7 +1006,7 @@ export const INITIAL_DELIVERIES: Delivery[] = [
     isMarketplaceOrder: true,
     sachaPackStatus: 'pendiente',
     sachaPackPayload: {
-      storeId: 'Vw5WLzIfe3TI59EgbOBtVisY08U2',
+      storeId: 'sxOzEivG9GP9SvaVuF1nVpQZCOu1',
       externalOrderId: 'ORD-9024',
       items: [{ barcode_imei: '992817263541', quantity: 1, price: 1950 }],
       customer: {
@@ -839,7 +1048,7 @@ export const INITIAL_DELIVERIES: Delivery[] = [
     sachaPackStatus: 'enviado',
     sachaPackDispatchedAt: '2026-07-26T09:00:04Z',
     sachaPackPayload: {
-      storeId: 'Vw5WLzIfe3TI59EgbOBtVisY08U2',
+      storeId: 'sxOzEivG9GP9SvaVuF1nVpQZCOu1',
       externalOrderId: 'ORD-9025',
       items: [{ barcode_imei: '556172839401', quantity: 1, price: 1450 }],
       customer: {
@@ -1343,6 +1552,67 @@ export const DEFAULT_SANPI_PLANS: SanpiPlan[] = [
     isActive: true,
     colorScheme: 'purple',
     createdAt: '2026-01-01T00:00:00Z'
+  }
+];
+
+export const INITIAL_CARRIER_USERS: CarrierUser[] = [
+  {
+    id: 'carrier_sacha_pack',
+    name: 'Sacha Pack Express RD',
+    companyName: 'Sacha Pack Courier & Cargo SRL',
+    email: 'operaciones@sachapack.com.do',
+    phone: '809-555-7224',
+    rnc: '1-32-49821-3',
+    province: 'Distrito Nacional',
+    apiKey: 'sanpi_live_sacha_9824kx9182la',
+    webhookUrl: 'https://api.sachapack.com.do/v1/webhooks/sanpi',
+    coverageProvinces: [
+      'Distrito Nacional',
+      'Santo Domingo',
+      'Santiago',
+      'San Cristóbal',
+      'La Vega',
+      'Puerto Plata',
+      'San Pedro de Macorís',
+      'La Romana',
+      'La Altagracia'
+    ],
+    isActive: true,
+    totalOrdersHandled: 1420,
+    totalCodCollected: 3450000,
+    createdAt: '2026-01-01T00:00:00Z'
+  },
+  {
+    id: 'carrier_metro_pac',
+    name: 'Metro Pac Cargo Express',
+    companyName: 'Metro Servicios Turísticos & Carga SA',
+    email: 'logistica@metropac.com.do',
+    phone: '809-227-0101',
+    rnc: '1-01-04982-1',
+    province: 'Distrito Nacional',
+    apiKey: 'sanpi_live_metropac_3391az0912kp',
+    webhookUrl: 'https://api.metropac.com.do/sanpi-dispatch',
+    coverageProvinces: ['Todas las 32 Provincias'],
+    isActive: true,
+    totalOrdersHandled: 890,
+    totalCodCollected: 2150000,
+    createdAt: '2026-02-01T00:00:00Z'
+  },
+  {
+    id: 'carrier_caribe_pack',
+    name: 'Caribe Pack Envíos',
+    companyName: 'Caribe Tours Logística y Envíos Express',
+    email: 'envios@caribepack.com.do',
+    phone: '809-221-4422',
+    rnc: '1-02-18734-5',
+    province: 'Santo Domingo',
+    apiKey: 'sanpi_live_caribepack_7720qq8129vv',
+    webhookUrl: 'https://caribepack.com.do/api/v2/orders',
+    coverageProvinces: ['Todas las 32 Provincias'],
+    isActive: true,
+    totalOrdersHandled: 1105,
+    totalCodCollected: 2890000,
+    createdAt: '2026-02-15T00:00:00Z'
   }
 ];
 

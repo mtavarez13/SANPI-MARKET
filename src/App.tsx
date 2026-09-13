@@ -17,6 +17,9 @@ import { LandingPageGeneratorModal } from './components/LandingPageGeneratorModa
 import { GoogleAuthModal } from './components/GoogleAuthModal';
 import { WelcomeEmailModal } from './components/WelcomeEmailModal';
 import { SachaPackProductBanner } from './components/SachaPackProductBanner';
+import { CarrierDashboard } from './components/CarrierDashboard';
+import { SupplierDashboard } from './components/SupplierDashboard';
+import { Sidebar } from './components/Sidebar';
 import { Footer } from './components/Footer';
 import { FloatingWhatsApp } from './components/FloatingWhatsApp';
 import { sanpiManager } from './lib/storeManager';
@@ -25,7 +28,7 @@ import { validateFirebaseConnection } from './lib/firebase';
 import { getCurrentStoredUser, isSuperAdmin } from './lib/authService';
 
 export default function App() {
-  const [currentView, setCurrentView] = useState<'explore' | 'catalogs' | 'dropship' | 'landing_page' | 'track' | 'partner' | 'admin'>('explore');
+  const [currentView, setCurrentView] = useState<'explore' | 'catalogs' | 'dropship' | 'landing_page' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier'>('explore');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStoreSlug, setSelectedStoreSlug] = useState<string | null>(null);
   const [activeLpSlug, setActiveLpSlug] = useState<string | null>(null);
@@ -46,6 +49,11 @@ export default function App() {
   const [selectedPlanForRegistration, setSelectedPlanForRegistration] = useState<StorePlan>('pro');
   const [generatorModalOpen, setGeneratorModalOpen] = useState(false);
   const [generatorPreselectedArticle, setGeneratorPreselectedArticle] = useState<Article | null>(null);
+
+  // Sidebar & Admin Tab State
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [adminInitialTab, setAdminInitialTab] = useState<'users' | 'subs' | 'stores' | 'referrals' | 'dropshippers' | 'landing_pages' | 'config' | 'finance' | 'expenses' | 'map' | 'plans' | 'branding'>('users');
 
   // Manager state subscription
   const [stores, setStores] = useState(sanpiManager.stores);
@@ -79,7 +87,16 @@ export default function App() {
     const hash = window.location.hash.replace(/^#\/?/, '').trim();
     const candidate = storeParam || rawPath || hash;
 
-    const reserved = ['explore', 'catalogs', 'dropship', 'track', 'partner', 'admin', 'marketplace', 'api', 'landing_page', ''];
+    const reserved = ['explore', 'catalogs', 'dropship', 'track', 'partner', 'admin', 'marketplace', 'api', 'landing_page', 'carrier', 'transport', 'supplier', 'proveedor', ''];
+    if (candidate.toLowerCase() === 'carrier' || candidate.toLowerCase() === 'transport' || candidate.toLowerCase() === 'transporte') {
+      setCurrentView('carrier');
+      return;
+    }
+    if (candidate.toLowerCase() === 'supplier' || candidate.toLowerCase() === 'proveedor' || candidate.toLowerCase() === 'proveedores') {
+      setCurrentView('supplier');
+      return;
+    }
+
     if (candidate && !reserved.includes(candidate.toLowerCase())) {
       const match = sanpiManager.stores.find(
         (s) =>
@@ -129,8 +146,20 @@ export default function App() {
       }
     });
 
+    const handleRoleUpdated = (e: any) => {
+      const updatedProfile = e.detail as UserProfile;
+      const stored = getCurrentStoredUser();
+      if (stored) {
+        setCurrentUser(stored);
+      } else if (updatedProfile) {
+        setCurrentUser(prev => (prev?.uid === updatedProfile.uid || prev?.email?.toLowerCase() === updatedProfile.email?.toLowerCase()) ? { ...prev, ...updatedProfile } : prev);
+      }
+    };
+    window.addEventListener('sanpi_user_role_updated', handleRoleUpdated);
+
     return () => {
       window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('sanpi_user_role_updated', handleRoleUpdated);
       unsubscribe();
     };
   }, []);
@@ -212,10 +241,10 @@ export default function App() {
       {/* Background Clean Canvas */}
       <div className="fixed inset-0 bg-gradient-to-b from-purple-50/20 via-white to-slate-50/30 -z-10" />
 
-      {/* Main Top Header (hidden in standalone Landing Page view) */}
+      {/* Left Navigation Sidebar with User Panels by Role */}
       {currentView !== 'landing_page' && (
-        <Navbar
-          currentView={currentView === 'landing_page' ? 'dropship' : currentView}
+        <Sidebar
+          currentView={currentView}
           setCurrentView={(view) => {
             if (view === 'partner') {
               setPartnerModalOpen(true);
@@ -223,30 +252,73 @@ export default function App() {
               setCurrentView(view);
             }
           }}
-          selectedStoreSlug={selectedStoreSlug}
-          onSelectStoreSlug={handleSelectStoreSlug}
-          cartCount={totalCartCount}
-          onOpenCart={() => setCheckoutOpen(true)}
-          searchQuery={searchQuery}
-          setSearchQuery={setSearchQuery}
+          adminInitialTab={adminInitialTab}
+          setAdminInitialTab={setAdminInitialTab}
           currentUser={currentUser}
-          onOpenAuthModal={() => {
-            setAuthDefaultRole('dropshipper');
+          onOpenAuthModal={(defaultRole) => {
+            setAuthDefaultRole(defaultRole || 'dropshipper');
             setAuthModalOpen(true);
           }}
           onOpenPartnerModal={() => {
             setSelectedPlanForRegistration('pro');
             setPartnerModalOpen(true);
           }}
-          onUserLoggedOut={() => setCurrentUser(null)}
-          articles={articles}
-          stores={stores}
-          onSelectArticle={(art) => setSelectedArticle(art)}
-          selectedLocation={selectedLocation}
-          onSelectLocation={setSelectedLocation}
+          onOpenGeneratorModal={() => {
+            setGeneratorPreselectedArticle(null);
+            setGeneratorModalOpen(true);
+          }}
+          selectedStoreSlug={selectedStoreSlug}
+          onSelectStoreSlug={handleSelectStoreSlug}
+          cartCount={totalCartCount}
+          onOpenCart={() => setCheckoutOpen(true)}
+          isMobileOpen={sidebarOpen}
+          setIsMobileOpen={setSidebarOpen}
+          isCollapsed={sidebarCollapsed}
+          setIsCollapsed={setSidebarCollapsed}
           config={siteConfig}
         />
       )}
+
+      {/* Content Wrapper offset by Left Sidebar on Desktop */}
+      <div className={`flex-1 flex flex-col justify-between transition-all duration-300 min-h-screen ${currentView !== 'landing_page' ? (sidebarCollapsed ? 'lg:pl-20' : 'lg:pl-72') : ''}`}>
+
+        {/* Main Top Header (hidden in standalone Landing Page view) */}
+        {currentView !== 'landing_page' && (
+          <Navbar
+            currentView={currentView === 'landing_page' ? 'dropship' : currentView}
+            setCurrentView={(view) => {
+              if (view === 'partner') {
+                setPartnerModalOpen(true);
+              } else {
+                setCurrentView(view);
+              }
+            }}
+            selectedStoreSlug={selectedStoreSlug}
+            onSelectStoreSlug={handleSelectStoreSlug}
+            cartCount={totalCartCount}
+            onOpenCart={() => setCheckoutOpen(true)}
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
+            currentUser={currentUser}
+            onOpenAuthModal={() => {
+              setAuthDefaultRole('dropshipper');
+              setAuthModalOpen(true);
+            }}
+            onOpenPartnerModal={() => {
+              setSelectedPlanForRegistration('pro');
+              setPartnerModalOpen(true);
+            }}
+            onUserLoggedOut={() => setCurrentUser(null)}
+            articles={articles}
+            stores={stores}
+            onSelectArticle={(art) => setSelectedArticle(art)}
+            selectedLocation={selectedLocation}
+            onSelectLocation={setSelectedLocation}
+            config={siteConfig}
+            onToggleSidebar={() => setSidebarOpen(prev => !prev)}
+            isSidebarOpen={sidebarOpen}
+          />
+        )}
 
       {/* App Main Body View Area */}
       <main className={`flex-1 w-full mx-auto ${currentView === 'landing_page' ? 'px-0 pt-0' : 'max-w-[1600px] xl:max-w-[1720px] 2xl:max-w-[1850px] px-3 sm:px-6 lg:px-8 xl:px-10 pt-4 sm:pt-6'}`}>
@@ -400,7 +472,9 @@ export default function App() {
             transactions={transactions}
             articles={articles}
             currentUser={currentUser}
+            initialTab={adminInitialTab}
             onViewLandingPage={handleOpenLp}
+            onNavigateToAccounting={() => setCurrentView('accounting')}
             onSelectStoreSlug={(slug) => {
               setSelectedStoreSlug(slug);
               setCurrentView('catalogs');
@@ -413,6 +487,26 @@ export default function App() {
               setSubscriptions([...sanpiManager.subscriptions]);
               setExpenses([...sanpiManager.expenses]);
               setLandingPages([...sanpiManager.landingPages]);
+            }}
+          />
+        )}
+
+        {/* CARRIER / TRANSPORT DASHBOARD */}
+        {currentView === 'carrier' && (
+          <CarrierDashboard
+            currentUser={currentUser}
+            onBackToMarketplace={() => setCurrentView('explore')}
+          />
+        )}
+
+        {/* SUPPLIER WHOLESALE DASHBOARD */}
+        {currentView === 'supplier' && (
+          <SupplierDashboard
+            currentUser={currentUser}
+            onBackToMarketplace={() => setCurrentView('explore')}
+            onOpenLandingGenerator={() => {
+              setGeneratorPreselectedArticle(null);
+              setGeneratorModalOpen(true);
             }}
           />
         )}
@@ -544,6 +638,8 @@ export default function App() {
           config={siteConfig}
         />
       )}
+
+      </div>
 
       {/* Floating Official Sanpi WhatsApp Support Button (809-676-6690) */}
       <FloatingWhatsApp

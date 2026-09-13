@@ -86,7 +86,7 @@ export interface LogisticsProviderConfig {
   webhookUrl: string; // e.g. 'https://sachapack.com/api/logistics-webhook' or 'https://api.transport-company.com/v1/dispatch'
   httpMethod: 'POST' | 'PUT';
   headers?: Record<string, string>;
-  defaultStoreId: string; // e.g. 'Vw5WLzIfe3TI59EgbOBtVisY08U2' or Account ID
+  defaultStoreId: string; // e.g. 'sxOzEivG9GP9SvaVuF1nVpQZCOu1' or Account ID
   apiKey?: string; // API Key for authentication
   authToken?: string; // Bearer token or authorization key
   authType?: AuthHeaderType; // Scheme used to transmit apiKey
@@ -110,10 +110,16 @@ export interface UserProfile {
   email: string | null;
   displayName: string | null;
   photoURL: string | null;
-  role: 'customer' | 'dropshipper' | 'partner' | 'admin';
+  role: 'customer' | 'dropshipper' | 'partner' | 'supplier' | 'carrier' | 'admin';
   phone?: string;
   province?: string;
   storeName?: string;
+  companyName?: string;
+  apiKey?: string;
+  rnc?: string;
+  coverageProvinces?: string[];
+  isProviderApproved?: boolean;
+  supplierCategory?: string;
   plan?: StorePlan;
   referralCode?: string;
   referredByCode?: string;
@@ -124,13 +130,31 @@ export interface UserProfile {
 export interface WelcomeEmailPayload {
   name: string;
   email: string;
-  role: 'customer' | 'dropshipper' | 'partner' | 'admin';
+  role: 'customer' | 'dropshipper' | 'partner' | 'supplier' | 'carrier' | 'admin';
   plan?: StorePlan;
   storeName?: string;
+  companyName?: string;
   referralCode: string;
   phone?: string;
   province?: string;
   referredByCode?: string;
+}
+
+export interface CarrierUser {
+  id: string;
+  name: string; // Nombre comercial de la empresa de transporte
+  companyName: string;
+  email: string;
+  phone: string;
+  rnc?: string;
+  province?: string;
+  apiKey: string;
+  webhookUrl?: string;
+  coverageProvinces: string[];
+  isActive: boolean;
+  totalOrdersHandled?: number;
+  totalCodCollected?: number;
+  createdAt: string;
 }
 
 export interface WelcomeEmailResult {
@@ -205,7 +229,7 @@ export interface Store {
   plan?: StorePlan;
   logisticsProviderId?: string; // ID de la empresa de logística configurada
   logisticsProviderName?: string; // Nombre del operador logístico
-  sachaPackStoreId?: string; // e.g. 'Vw5WLzIfe3TI59EgbOBtVisY08U2'
+  sachaPackStoreId?: string; // e.g. 'sxOzEivG9GP9SvaVuF1nVpQZCOu1'
   // Store Referral Program Fields
   referralCode?: string; // e.g. 'SANPI-TECHZONE', 'SANPI-MODACARIBE'
   referredByStoreId?: string; // ID de la tienda que la refirió
@@ -287,6 +311,15 @@ export interface Product {
   status?: 'aprobado' | 'pendiente';
   isPublic?: boolean;
   isDropshipping?: boolean;
+  // Supplier & Wholesale Platform Fields
+  isProviderProduct?: boolean; // Subido por un proveedor mayorista a precio base
+  visibility?: 'public' | 'dropshippers_only'; // 'dropshippers_only' oculto en el e-commerce público
+  baseCost?: number; // Costo base mayorista del proveedor
+  suggestedRetailPrice?: number; // PVP recomendado
+  supplierId?: string; // ID del proveedor mayorista
+  supplierName?: string; // Nombre de la empresa proveedora
+  supplierEmail?: string;
+  addedToStoreSlugs?: string[]; // Slugs de tiendas que promocionan este producto
   views?: number;
   reviews?: ProductReview[];
   createdAt: string;
@@ -375,6 +408,13 @@ export interface Delivery {
   // Multi-Provider Logistics API Integration Fields
   logisticsProviderId?: string;
   logisticsProviderName?: string;
+  carrierId?: string; // ID de la empresa de transporte asignada (ej: 'sacha_pack', 'metro_pac', 'caribe_pack')
+  carrierName?: string; // Nombre comercial del courier
+  carrierApiKey?: string;
+  driverName?: string; // Nombre del chofer o repartidor
+  driverPhone?: string; // Teléfono del chofer
+  carrierNotes?: string;
+  collectedAt?: string;
   sachaPackStatus?: 'pendiente' | 'enviado' | 'error' | 'simulado';
   sachaPackPayload?: SachaPackWebhookPayload;
   sachaPackResponse?: SachaPackWebhookResponse;
@@ -487,10 +527,17 @@ export interface MarketplaceSubscription {
 export interface Expense {
   id: string;
   title: string;
-  category: 'logistica' | 'marketing' | 'servidores' | 'nomina' | 'otros';
+  category: 'logistica' | 'marketing' | 'servidores' | 'nomina' | 'inventario' | 'suscripciones' | 'otros';
   amount: number;
   date: string;
   createdAt: string;
+  userId?: string;
+  userEmail?: string;
+  userName?: string;
+  userRole?: 'customer' | 'dropshipper' | 'partner' | 'supplier' | 'carrier' | 'admin';
+  storeId?: string;
+  reference?: string;
+  notes?: string;
 }
 
 export interface CartItem {

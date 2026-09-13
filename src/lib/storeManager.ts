@@ -12,8 +12,8 @@ import {
   deleteDoc
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType, SANPI_FLAT_SHIPPING_FEE } from './firebase';
-import { Article, Delivery, Expense, MarketplaceSubscription, Store, Transaction, LandingPageConfig, DropshipItem, SachaPackWebhookPayload, SachaPackWebhookResponse, LogisticsProviderConfig, PaymentMethod, UserLocationProfile, StoreReferralRecord, LogisticsConnectionTestResult, LogisticsInboundWebhookPayload, SanpiPlan, SiteThemeConfig, BankAccount } from '../types';
-import { INITIAL_ARTICLES, INITIAL_DELIVERIES, INITIAL_EXPENSES, INITIAL_STORES, INITIAL_SUBSCRIPTIONS, INITIAL_TRANSACTIONS, INITIAL_LANDING_PAGES, INITIAL_DROPSHIP_ITEMS, INITIAL_STORE_REFERRALS, DEFAULT_SANPI_PLANS } from '../data/seedData';
+import { Article, Delivery, Expense, MarketplaceSubscription, Store, Transaction, LandingPageConfig, DropshipItem, SachaPackWebhookPayload, SachaPackWebhookResponse, LogisticsProviderConfig, PaymentMethod, UserLocationProfile, StoreReferralRecord, LogisticsConnectionTestResult, LogisticsInboundWebhookPayload, SanpiPlan, SiteThemeConfig, BankAccount, CarrierUser, DeliveryStatus } from '../types';
+import { INITIAL_ARTICLES, INITIAL_DELIVERIES, INITIAL_EXPENSES, INITIAL_STORES, INITIAL_SUBSCRIPTIONS, INITIAL_TRANSACTIONS, INITIAL_LANDING_PAGES, INITIAL_DROPSHIP_ITEMS, INITIAL_STORE_REFERRALS, DEFAULT_SANPI_PLANS, INITIAL_CARRIER_USERS } from '../data/seedData';
 import { DEFAULT_SITE_THEME_CONFIG, DEFAULT_BANK_ACCOUNTS } from '../data/siteThemePresets';
 import { speakSanpi } from './audioTTS';
 import {
@@ -42,6 +42,7 @@ const LS_LOGISTICS_PROVIDERS = 'sanpi_logistics_providers';
 const LS_STORE_REFERRALS = 'sanpi_store_referrals';
 const LS_PLANS = 'sanpi_membership_plans';
 const LS_SITE_THEME_CONFIG = 'sanpi_site_theme_config';
+const LS_CARRIER_USERS = 'sanpi_carrier_users';
 
 export class SanpiStoreManager {
   private static instance: SanpiStoreManager;
@@ -58,6 +59,7 @@ export class SanpiStoreManager {
   public storeReferrals: StoreReferralRecord[] = [];
   public plans: SanpiPlan[] = [];
   public siteConfig: SiteThemeConfig = DEFAULT_SITE_THEME_CONFIG;
+  public carrierUsers: CarrierUser[] = [];
 
   private listeners: Set<() => void> = new Set();
   public lastNewOrder: Delivery | null = null;
@@ -97,6 +99,7 @@ export class SanpiStoreManager {
       localStorage.setItem(LS_STORE_REFERRALS, JSON.stringify(this.storeReferrals));
       localStorage.setItem(LS_PLANS, JSON.stringify(this.plans));
       localStorage.setItem(LS_SITE_THEME_CONFIG, JSON.stringify(this.siteConfig));
+      localStorage.setItem(LS_CARRIER_USERS, JSON.stringify(this.carrierUsers));
     } catch (e) {
       console.warn('LocalStorage save failed:', e);
     }
@@ -116,6 +119,9 @@ export class SanpiStoreManager {
       const refRaw = localStorage.getItem(LS_STORE_REFERRALS);
       const plansRaw = localStorage.getItem(LS_PLANS);
       const siteConfigRaw = localStorage.getItem(LS_SITE_THEME_CONFIG);
+      const carriersRaw = localStorage.getItem(LS_CARRIER_USERS);
+
+      this.carrierUsers = carriersRaw ? JSON.parse(carriersRaw) : INITIAL_CARRIER_USERS;
 
       if (siteConfigRaw) {
         try {
@@ -228,6 +234,7 @@ export class SanpiStoreManager {
       this.dropshipItems = INITIAL_DROPSHIP_ITEMS;
       this.storeReferrals = INITIAL_STORE_REFERRALS;
       this.logisticsProviders = DEFAULT_LOGISTICS_PROVIDERS;
+      this.carrierUsers = INITIAL_CARRIER_USERS;
     }
   }
 
@@ -1442,16 +1449,37 @@ export class SanpiStoreManager {
   }
 
   // 6. Register Expense
-  public async addExpense(title: string, category: Expense['category'], amount: number) {
+  public async addExpense(
+    title: string,
+    category: Expense['category'],
+    amount: number,
+    extra?: {
+      userId?: string;
+      userEmail?: string;
+      userName?: string;
+      userRole?: Expense['userRole'];
+      storeId?: string;
+      reference?: string;
+      notes?: string;
+      date?: string;
+    }
+  ) {
     const id = `exp_${Date.now()}`;
-    const today = new Date().toISOString().split('T')[0];
+    const today = extra?.date || new Date().toISOString().split('T')[0];
     const newExp: Expense = {
       id,
       title,
       category,
       amount,
       date: today,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      userId: extra?.userId,
+      userEmail: extra?.userEmail,
+      userName: extra?.userName,
+      userRole: extra?.userRole,
+      storeId: extra?.storeId,
+      reference: extra?.reference,
+      notes: extra?.notes
     };
 
     this.expenses = [newExp, ...this.expenses];
@@ -1463,6 +1491,7 @@ export class SanpiStoreManager {
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `expenses/${id}`);
     }
+    return newExp;
   }
 
   // 7. Delete Expense
@@ -1495,6 +1524,237 @@ export class SanpiStoreManager {
       await setDoc(doc(db, 'articles', id), newArt);
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `articles/${id}`);
+    }
+  }
+
+  // 8b. Add Wholesale Provider Article (Hidden from public, visible to dropshippers at base price)
+  public async addProviderArticle(data: {
+    title: string;
+    description: string;
+    category: string;
+    subcategory?: string;
+    baseCost: number; // Wholesale base price
+    suggestedRetailPrice?: number;
+    stock: number;
+    images: string[];
+    specifications?: Record<string, string>;
+    barcode_imei?: string;
+    supplierId?: string;
+    supplierName?: string;
+    supplierEmail?: string;
+  }): Promise<Article> {
+    const id = `art_prov_${Date.now()}`;
+    const slug = data.title.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').slice(0, 50);
+    const mainImg = data.images && data.images.length > 0 ? data.images[0] : 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800';
+
+    const newProviderArt: Article = {
+      id,
+      storeId: data.supplierId || 'store_provider_generic',
+      storeName: data.supplierName || 'Proveedor Mayorista RD',
+      title: data.title,
+      name: data.title,
+      slug,
+      description: data.description,
+      images: data.images && data.images.length > 0 ? data.images : [mainImg],
+      image: mainImg,
+      gallery: data.images,
+      price: data.baseCost, // Wholesale base cost
+      wholesalePrice: data.baseCost,
+      baseCost: data.baseCost,
+      costPerItem: data.baseCost,
+      suggestedRetailPrice: data.suggestedRetailPrice || Math.round(data.baseCost * 1.8),
+      compareAtPrice: data.suggestedRetailPrice ? Math.round(data.suggestedRetailPrice * 1.2) : Math.round(data.baseCost * 2),
+      category: data.category || 'Tecnología & Gadgets',
+      subcategory: data.subcategory,
+      variants: [{ name: 'Estándar', options: ['Unidad'] }],
+      inventory: data.stock || 50,
+      stock: data.stock || 50,
+      rating: 5.0,
+      reviewCount: 0,
+      specifications: data.specifications || {},
+      barcode_imei: data.barcode_imei || Date.now().toString(),
+      status: 'aprobado',
+      isPublic: false, // OCULTO DEL E-COMMERCE GENERAL
+      visibility: 'dropshippers_only', // SOLO PARA DROPSHIPPERS
+      isProviderProduct: true,
+      isDropshipping: true,
+      supplierId: data.supplierId,
+      supplierName: data.supplierName,
+      supplierEmail: data.supplierEmail,
+      addedToStoreSlugs: [],
+      views: 0,
+      reviews: [],
+      createdAt: new Date().toISOString()
+    };
+
+    this.articles = [newProviderArt, ...this.articles];
+    this.saveToLocalStorage();
+    this.notify();
+
+    try {
+      await setDoc(doc(db, 'articles', id), newProviderArt);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `articles/${id}`);
+    }
+
+    return newProviderArt;
+  }
+
+  // 8c. Import / Promote Provider Article into a Dropshipper Store Catalog
+  public async importProviderArticleToStore(
+    providerArticleId: string,
+    targetStoreId: string,
+    retailPrice: number
+  ): Promise<Article | null> {
+    const providerArt = this.articles.find(a => a.id === providerArticleId);
+    if (!providerArt) return null;
+
+    const targetStore = this.stores.find(s => s.id === targetStoreId);
+    if (!targetStore) return null;
+
+    const newStoreArticleId = `art_ds_${Date.now()}`;
+    const retailCost = providerArt.baseCost || providerArt.price;
+    const suggestedCompare = Math.round(retailPrice * 1.25);
+
+    const importedProduct: Article = {
+      ...providerArt,
+      id: newStoreArticleId,
+      storeId: targetStore.id,
+      storeName: targetStore.name,
+      price: retailPrice, // PVP elegido por el dropshipper
+      compareAtPrice: suggestedCompare,
+      costPerItem: retailCost, // Costo base del proveedor
+      wholesalePrice: retailCost,
+      isPublic: true, // AHORA ES PÚBLICO EN EL E-COMMERCE DE LA TIENDA
+      visibility: 'public',
+      isProviderProduct: false,
+      isDropshipping: true,
+      supplierId: providerArt.supplierId || providerArt.id,
+      supplierName: providerArt.supplierName || providerArt.storeName,
+      createdAt: new Date().toISOString()
+    };
+
+    // Record that this store slug imported it
+    if (!providerArt.addedToStoreSlugs) providerArt.addedToStoreSlugs = [];
+    if (!providerArt.addedToStoreSlugs.includes(targetStore.slug)) {
+      providerArt.addedToStoreSlugs.push(targetStore.slug);
+    }
+
+    this.articles = [importedProduct, ...this.articles];
+    this.saveToLocalStorage();
+    this.notify();
+
+    try {
+      await setDoc(doc(db, 'articles', newStoreArticleId), importedProduct);
+      await updateDoc(doc(db, 'articles', providerArt.id), {
+        addedToStoreSlugs: providerArt.addedToStoreSlugs
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `articles/${newStoreArticleId}`);
+    }
+
+    return importedProduct;
+  }
+
+  // 8d. Carrier User Management
+  public async addCarrierUser(carrier: CarrierUser): Promise<CarrierUser> {
+    const existingIdx = this.carrierUsers.findIndex(c => c.id === carrier.id);
+    if (existingIdx !== -1) {
+      this.carrierUsers[existingIdx] = carrier;
+    } else {
+      this.carrierUsers = [carrier, ...this.carrierUsers];
+    }
+    this.saveToLocalStorage();
+    this.notify();
+
+    try {
+      await setDoc(doc(db, 'carrier_users', carrier.id), carrier);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `carrier_users/${carrier.id}`);
+    }
+    return carrier;
+  }
+
+  public async updateCarrierUser(id: string, updates: Partial<CarrierUser>): Promise<void> {
+    const idx = this.carrierUsers.findIndex(c => c.id === id);
+    if (idx === -1) return;
+
+    this.carrierUsers[idx] = { ...this.carrierUsers[idx], ...updates };
+    this.saveToLocalStorage();
+    this.notify();
+
+    try {
+      await updateDoc(doc(db, 'carrier_users', id), updates);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `carrier_users/${id}`);
+    }
+  }
+
+  public async deleteCarrierUser(id: string): Promise<void> {
+    this.carrierUsers = this.carrierUsers.filter(c => c.id !== id);
+    this.saveToLocalStorage();
+    this.notify();
+
+    try {
+      await deleteDoc(doc(db, 'carrier_users', id));
+    } catch (err) {
+      // ignore
+    }
+  }
+
+  // 8e. Update Delivery Carrier Info (Status, Chofer, Notas)
+  public async updateDeliveryCarrierInfo(
+    deliveryId: string,
+    info: {
+      status?: DeliveryStatus;
+      driverName?: string;
+      driverPhone?: string;
+      carrierNotes?: string;
+      carrierId?: string;
+      carrierName?: string;
+    }
+  ): Promise<void> {
+    const idx = this.deliveries.findIndex(d => d.id === deliveryId || d.trackingNumber === deliveryId);
+    if (idx === -1) return;
+
+    const delivery = this.deliveries[idx];
+    const nowIso = new Date().toISOString();
+    const newStatus = info.status || delivery.status;
+
+    const newHistoryEntry = {
+      status: newStatus,
+      date: nowIso,
+      note: info.carrierNotes || `Actualización por Transportista (${info.carrierName || delivery.carrierName || 'Courier'}) - Conductor: ${info.driverName || delivery.driverName || 'No asignado'}`
+    };
+
+    this.deliveries[idx] = {
+      ...delivery,
+      ...info,
+      status: newStatus,
+      collectedAt: newStatus === 'entregado' ? (delivery.collectedAt || nowIso) : delivery.collectedAt,
+      history: [...(delivery.history || []), newHistoryEntry]
+    };
+
+    // If marked entregado, update transaction status too
+    if (newStatus === 'entregado') {
+      const txIdx = this.transactions.findIndex(t => t.trackingNumber === delivery.trackingNumber);
+      if (txIdx !== -1) {
+        this.transactions[txIdx].status = 'entregado';
+      }
+    }
+
+    this.saveToLocalStorage();
+    this.notify();
+
+    try {
+      await updateDoc(doc(db, 'deliveries', delivery.id), {
+        ...info,
+        status: newStatus,
+        collectedAt: this.deliveries[idx].collectedAt,
+        history: this.deliveries[idx].history
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `deliveries/${delivery.id}`);
     }
   }
 
