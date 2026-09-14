@@ -19,6 +19,7 @@ import { WelcomeEmailModal } from './components/WelcomeEmailModal';
 import { SachaPackProductBanner } from './components/SachaPackProductBanner';
 import { CarrierDashboard } from './components/CarrierDashboard';
 import { SupplierDashboard } from './components/SupplierDashboard';
+import { CustomerAddressModal } from './components/CustomerAddressModal';
 import { Sidebar } from './components/Sidebar';
 import { Footer } from './components/Footer';
 import { FloatingWhatsApp } from './components/FloatingWhatsApp';
@@ -28,7 +29,7 @@ import { validateFirebaseConnection } from './lib/firebase';
 import { getCurrentStoredUser, isSuperAdmin, setupGlobalAuthObserver } from './lib/authService';
 
 export default function App() {
-  const [currentView, setCurrentView] = useState<'explore' | 'catalogs' | 'dropship' | 'landing_page' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier'>('explore');
+  const [currentView, setCurrentView] = useState<'explore' | 'catalogs' | 'dropship' | 'landing_page' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting'>('explore');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStoreSlug, setSelectedStoreSlug] = useState<string | null>(null);
   const [activeLpSlug, setActiveLpSlug] = useState<string | null>(null);
@@ -40,6 +41,7 @@ export default function App() {
   const [authDefaultRole, setAuthDefaultRole] = useState<'customer' | 'dropshipper' | 'partner'>('dropshipper');
   const [welcomeModalOpen, setWelcomeModalOpen] = useState(false);
   const [welcomeModalUser, setWelcomeModalUser] = useState<UserProfile | null>(null);
+  const [customerAddressModalOpen, setCustomerAddressModalOpen] = useState(false);
 
   // Modals state
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
@@ -87,13 +89,42 @@ export default function App() {
     const hash = window.location.hash.replace(/^#\/?/, '').trim();
     const candidate = storeParam || rawPath || hash;
 
-    const reserved = ['explore', 'catalogs', 'dropship', 'track', 'partner', 'admin', 'marketplace', 'api', 'landing_page', 'carrier', 'transport', 'supplier', 'proveedor', ''];
+    const reserved = ['explore', 'catalogs', 'dropship', 'track', 'partner', 'admin', 'marketplace', 'api', 'landing_page', 'carrier', 'transport', 'supplier', 'proveedor', 'accounting', ''];
+    
+    // Customer restriction guard on URL navigation
+    const stored = getCurrentStoredUser();
+    const isCustomerUser = stored?.role === 'customer' && !isSuperAdmin(stored?.email);
+
     if (candidate.toLowerCase() === 'carrier' || candidate.toLowerCase() === 'transport' || candidate.toLowerCase() === 'transporte') {
+      if (isCustomerUser) {
+        setCurrentView('explore');
+        return;
+      }
       setCurrentView('carrier');
       return;
     }
     if (candidate.toLowerCase() === 'supplier' || candidate.toLowerCase() === 'proveedor' || candidate.toLowerCase() === 'proveedores') {
+      if (isCustomerUser) {
+        setCurrentView('explore');
+        return;
+      }
       setCurrentView('supplier');
+      return;
+    }
+    if (candidate.toLowerCase() === 'admin' || candidate.toLowerCase() === 'marketplace') {
+      if (isCustomerUser) {
+        setCurrentView('explore');
+        return;
+      }
+      setCurrentView('admin');
+      return;
+    }
+    if (candidate.toLowerCase() === 'accounting' || candidate.toLowerCase() === 'dropship') {
+      if (isCustomerUser) {
+        setCurrentView('explore');
+        return;
+      }
+      setCurrentView(candidate.toLowerCase() as any);
       return;
     }
 
@@ -171,6 +202,32 @@ export default function App() {
       unsubscribe();
     };
   }, []);
+
+  // Strict role guard: Customer users cannot access internal admin, partner, supplier, carrier, or accounting panels
+  useEffect(() => {
+    if (currentUser?.role === 'customer' && !isSuperAdmin(currentUser?.email)) {
+      if (['carrier', 'supplier', 'admin', 'accounting', 'dropship'].includes(currentView)) {
+        setCurrentView('explore');
+      }
+    }
+  }, [currentUser, currentView]);
+
+  const handleSetCurrentView = (view: 'explore' | 'catalogs' | 'dropship' | 'landing_page' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting') => {
+    if (view === 'partner') {
+      setSelectedPlanForRegistration('pro');
+      setPartnerModalOpen(true);
+      return;
+    }
+
+    // Role guard: Customers only have access to shopping, catalog, tracking, and shipping address
+    if (currentUser?.role === 'customer' && !isSuperAdmin(currentUser?.email)) {
+      if (view === 'carrier' || view === 'supplier' || view === 'admin' || view === 'accounting' || view === 'dropship') {
+        setCurrentView('explore');
+        return;
+      }
+    }
+    setCurrentView(view);
+  };
 
   const handleSelectStoreSlug = (slug: string | null) => {
     setSelectedStoreSlug(slug);
@@ -253,13 +310,7 @@ export default function App() {
       {currentView !== 'landing_page' && (
         <Sidebar
           currentView={currentView}
-          setCurrentView={(view) => {
-            if (view === 'partner') {
-              setPartnerModalOpen(true);
-            } else {
-              setCurrentView(view);
-            }
-          }}
+          setCurrentView={handleSetCurrentView}
           adminInitialTab={adminInitialTab}
           setAdminInitialTab={setAdminInitialTab}
           currentUser={currentUser}
@@ -284,6 +335,7 @@ export default function App() {
           isCollapsed={sidebarCollapsed}
           setIsCollapsed={setSidebarCollapsed}
           config={siteConfig}
+          onOpenAddressModal={() => setCustomerAddressModalOpen(true)}
         />
       )}
 
@@ -294,13 +346,7 @@ export default function App() {
         {currentView !== 'landing_page' && (
           <Navbar
             currentView={currentView === 'landing_page' ? 'dropship' : currentView}
-            setCurrentView={(view) => {
-              if (view === 'partner') {
-                setPartnerModalOpen(true);
-              } else {
-                setCurrentView(view);
-              }
-            }}
+            setCurrentView={handleSetCurrentView}
             selectedStoreSlug={selectedStoreSlug}
             onSelectStoreSlug={handleSelectStoreSlug}
             cartCount={totalCartCount}
@@ -325,6 +371,7 @@ export default function App() {
             config={siteConfig}
             onToggleSidebar={() => setSidebarOpen(prev => !prev)}
             isSidebarOpen={sidebarOpen}
+            onOpenAddressModal={() => setCustomerAddressModalOpen(true)}
           />
         )}
 
@@ -542,11 +589,23 @@ export default function App() {
           onClearCart={() => setCart([])}
           onRemoveFromCart={handleRemoveFromCart}
           onUpdateQuantity={handleUpdateQuantity}
+          currentUser={currentUser}
+          onOpenAddressModal={() => setCustomerAddressModalOpen(true)}
           onOrderSuccess={(delivery) => {
             setDeliveries([...sanpiManager.deliveries]);
           }}
         />
       )}
+
+      {/* Customer Shipping Address Profile Modal */}
+      <CustomerAddressModal
+        isOpen={customerAddressModalOpen}
+        onClose={() => setCustomerAddressModalOpen(false)}
+        currentUser={currentUser}
+        onAddressSaved={(updatedProfile) => {
+          setCurrentUser(updatedProfile);
+        }}
+      />
 
       {/* Partner Registration Modal */}
       {partnerModalOpen && (

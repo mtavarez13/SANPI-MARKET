@@ -9,7 +9,7 @@ import {
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, collection, getDocs, deleteDoc, updateDoc } from 'firebase/firestore';
 import { auth, db } from './firebase';
-import { UserProfile, StorePlan } from '../types';
+import { UserProfile, StorePlan, CustomerShippingAddress } from '../types';
 import { sendWelcomeEmail } from './emailService';
 import { sanpiManager } from './storeManager';
 
@@ -1185,5 +1185,94 @@ export function setupGlobalAuthObserver(onUserLoaded?: (user: UserProfile | null
       if (onUserLoaded) onUserLoaded(profile);
     }
   });
+}
+
+/**
+ * Guarda o actualiza la dirección de envío del cliente tanto en Firestore
+ * como en localStorage, asegurando el llenado automático para compras.
+ */
+export async function saveCustomerShippingAddress(
+  user: UserProfile,
+  shippingAddress: CustomerShippingAddress
+): Promise<UserProfile> {
+  const updatedAddress: CustomerShippingAddress = {
+    ...shippingAddress,
+    updatedAt: new Date().toISOString()
+  };
+
+  const updatedUser: UserProfile = {
+    ...user,
+    phone: shippingAddress.phone || user.phone,
+    province: shippingAddress.province || user.province,
+    city: shippingAddress.city || user.city,
+    address: shippingAddress.address || user.address,
+    notes: shippingAddress.notes || user.notes,
+    shippingAddress: updatedAddress
+  };
+
+  // 1. Guardar en localStorage
+  try {
+    localStorage.setItem('sanpi_auth_user', JSON.stringify(updatedUser));
+    localStorage.setItem(`sanpi_shipping_addr_${user.uid}`, JSON.stringify(updatedAddress));
+    if (user.email) {
+      localStorage.setItem(`sanpi_shipping_addr_${user.email.toLowerCase()}`, JSON.stringify(updatedAddress));
+    }
+
+    const rawUsers = localStorage.getItem('sanpi_registered_users');
+    if (rawUsers) {
+      let list: UserProfile[] = JSON.parse(rawUsers);
+      list = list.map(u => (u.uid === user.uid || (u.email && u.email.toLowerCase() === user.email?.toLowerCase())) ? updatedUser : u);
+      localStorage.setItem('sanpi_registered_users', JSON.stringify(list));
+    }
+  } catch (e) {
+    console.debug('Error local storage shipping address:', e);
+  }
+
+  // 2. Guardar en Firestore en ambas colecciones
+  try {
+    const emailKey = user.email ? user.email.trim().toLowerCase().replace(/[^a-zA-Z0-9]/g, '_') : '';
+    await setDoc(doc(db, 'marketplace_users', user.uid), updatedUser, { merge: true });
+    await setDoc(doc(db, 'users', user.uid), updatedUser, { merge: true });
+    if (emailKey) {
+      await setDoc(doc(db, 'marketplace_users', emailKey), updatedUser, { merge: true });
+      await setDoc(doc(db, 'users', emailKey), updatedUser, { merge: true });
+    }
+  } catch (e) {
+    console.debug('Error firestore shipping address:', e);
+  }
+
+  window.dispatchEvent(new CustomEvent('sanpi_user_address_updated', { detail: updatedUser }));
+  return updatedUser;
+}
+
+/**
+ * Obtiene la dirección de envío guardada para el usuario cliente.
+ */
+export function getCustomerSavedShippingAddress(user?: UserProfile | null): CustomerShippingAddress | null {
+  if (!user) return null;
+  if (user.shippingAddress && user.shippingAddress.address) {
+    return user.shippingAddress;
+  }
+  try {
+    const fromUid = localStorage.getItem(`sanpi_shipping_addr_${user.uid}`);
+    if (fromUid) return JSON.parse(fromUid);
+    if (user.email) {
+      const fromEmail = localStorage.getItem(`sanpi_shipping_addr_${user.email.toLowerCase()}`);
+      if (fromEmail) return JSON.parse(fromEmail);
+    }
+  } catch {}
+
+  if (user.address || user.phone || user.province) {
+    return {
+      fullName: user.displayName || '',
+      phone: user.phone || '',
+      email: user.email || '',
+      province: user.province || 'Distrito Nacional',
+      city: user.city || '',
+      address: user.address || '',
+      notes: user.notes || ''
+    };
+  }
+  return null;
 }
 

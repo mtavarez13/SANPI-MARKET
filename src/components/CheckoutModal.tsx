@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
-import { Article, CartItem, Delivery, PaymentMethod, BankAccount } from '../types';
+import React, { useState, useEffect } from 'react';
+import { Article, CartItem, Delivery, PaymentMethod, BankAccount, UserProfile, CustomerShippingAddress } from '../types';
 import { RD_PROVINCES } from '../data/rdProvinces';
 import { SANPI_FLAT_SHIPPING_FEE } from '../lib/firebase';
 import { sanpiManager } from '../lib/storeManager';
 import { DEFAULT_BANK_ACCOUNTS } from '../data/siteThemePresets';
 import { speakSanpi } from '../lib/audioTTS';
+import { getCustomerSavedShippingAddress, saveCustomerShippingAddress } from '../lib/authService';
 import confetti from 'canvas-confetti';
 import {
   X,
@@ -33,6 +34,8 @@ interface CheckoutModalProps {
   onRemoveFromCart: (articleId: string) => void;
   onUpdateQuantity: (articleId: string, quantity: number) => void;
   onOrderSuccess: (delivery: Delivery) => void;
+  currentUser?: UserProfile | null;
+  onOpenAddressModal?: () => void;
 }
 
 export const CheckoutModal: React.FC<CheckoutModalProps> = ({
@@ -41,7 +44,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   onClearCart,
   onRemoveFromCart,
   onUpdateQuantity,
-  onOrderSuccess
+  onOrderSuccess,
+  currentUser,
+  onOpenAddressModal
 }) => {
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
@@ -50,6 +55,33 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const [city, setCity] = useState('');
   const [address, setAddress] = useState('');
   const [notes, setNotes] = useState('');
+  const [autoFilledFromProfile, setAutoFilledFromProfile] = useState(false);
+  const [saveAddressToProfile, setSaveAddressToProfile] = useState(true);
+
+  // Auto-fill shipping address from customer profile if available
+  useEffect(() => {
+    if (currentUser) {
+      const saved = getCustomerSavedShippingAddress(currentUser);
+      if (saved && (saved.address || saved.phone || saved.city)) {
+        if (saved.fullName || currentUser.displayName) setCustomerName(saved.fullName || currentUser.displayName || '');
+        if (saved.phone || currentUser.phone) setCustomerPhone(saved.phone || currentUser.phone || '');
+        if (saved.email || currentUser.email) setCustomerEmail(saved.email || currentUser.email || '');
+        if (saved.province || currentUser.province) setSelectedProvince(saved.province || currentUser.province || 'Distrito Nacional');
+        if (saved.city) setCity(saved.city);
+        if (saved.address) setAddress(saved.address);
+        if (saved.notes) setNotes(saved.notes);
+        setAutoFilledFromProfile(true);
+      } else {
+        if (currentUser.displayName) setCustomerName(currentUser.displayName);
+        if (currentUser.phone) setCustomerPhone(currentUser.phone);
+        if (currentUser.email) setCustomerEmail(currentUser.email);
+        if (currentUser.province) setSelectedProvince(currentUser.province);
+        if (currentUser.city) setCity(currentUser.city);
+        if (currentUser.address) setAddress(currentUser.address);
+        if (currentUser.notes) setNotes(currentUser.notes);
+      }
+    }
+  }, [currentUser]);
   
   // Payment Method: 'COD' | 'transferencia'
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('COD');
@@ -148,6 +180,23 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
         transferReference: paymentMethod === 'transferencia' ? (transferRef.trim() || 'Comprobante Adjunto') : undefined,
         transferReceiptUrl: paymentMethod === 'transferencia' ? receiptDataUrl : undefined
       });
+
+      // Auto-save shipping address if selected
+      if (saveAddressToProfile && currentUser) {
+        try {
+          await saveCustomerShippingAddress(currentUser, {
+            fullName: customerName.trim(),
+            phone: customerPhone.trim(),
+            email: customerEmail.trim() || currentUser.email || '',
+            province: selectedProvince,
+            city: city.trim(),
+            address: address.trim(),
+            notes: notes.trim()
+          });
+        } catch (e) {
+          console.debug('Error auto-saving address in checkout:', e);
+        }
+      }
 
       setCreatedDelivery(delivery);
 
@@ -586,10 +635,36 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
                 {/* 2. DATOS DE ENVÍO */}
                 <div className="space-y-4 pt-2 border-t border-slate-100">
-                  <h3 className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
-                    <MapPin className="w-4 h-4 text-purple-700" />
-                    <span>Datos de Envío y Entrega (República Dominicana)</span>
-                  </h3>
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                      <MapPin className="w-4 h-4 text-purple-700" />
+                      <span>Datos de Envío y Entrega (República Dominicana)</span>
+                    </h3>
+                    {autoFilledFromProfile && (
+                      <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                        Autollenado de tu cuenta
+                      </span>
+                    )}
+                  </div>
+
+                  {autoFilledFromProfile && (
+                    <div className="p-3 bg-emerald-50/80 border border-emerald-300 rounded-xl flex items-center justify-between gap-3 text-xs">
+                      <div className="flex items-center gap-2 text-emerald-950 font-medium truncate">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span className="truncate">Campos precargados con tu dirección guardada.</span>
+                      </div>
+                      {onOpenAddressModal && (
+                        <button
+                          type="button"
+                          onClick={onOpenAddressModal}
+                          className="text-[11px] font-extrabold text-purple-700 hover:text-purple-900 bg-white border border-purple-200 px-2.5 py-1 rounded-lg shrink-0 cursor-pointer shadow-2xs"
+                        >
+                          Modificar Dirección
+                        </button>
+                      )}
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                     <div>
@@ -679,6 +754,20 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                       className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-purple-600 focus:bg-white transition-all font-medium"
                     />
                   </div>
+
+                  {currentUser && (
+                    <div className="pt-1">
+                      <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-700 font-semibold select-none">
+                        <input
+                          type="checkbox"
+                          checked={saveAddressToProfile}
+                          onChange={(e) => setSaveAddressToProfile(e.target.checked)}
+                          className="rounded text-purple-600 focus:ring-purple-500 w-4 h-4 cursor-pointer"
+                        />
+                        <span>Guardar esta dirección en mi cuenta para autollenar mis próximas compras</span>
+                      </label>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex items-center justify-between p-3 rounded-xl bg-purple-50 border border-purple-200 text-xs">
@@ -686,7 +775,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                     <Truck className="w-4 h-4 text-purple-700 shrink-0" />
                     <span>Manejado y despachado por logística de Sacha Pack</span>
                   </div>
-                  <span className="text-[10px] bg-white text-purple-900 border border-purple-200 font-mono px-2 py-0.5 rounded font-bold">API Webhook</span>
+                  <span className="text-[10px] bg-white text-purple-900 border border-purple-200 font-bold px-2 py-0.5 rounded">Despacho Oficial 24-48h</span>
                 </div>
 
                 <button

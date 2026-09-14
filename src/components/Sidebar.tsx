@@ -51,6 +51,7 @@ export interface SidebarProps {
   isCollapsed: boolean;
   setIsCollapsed: (collapsed: boolean) => void;
   config?: { logoUrl?: string; siteName?: string; primaryColor?: string };
+  onOpenAddressModal?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -70,7 +71,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   setIsMobileOpen,
   isCollapsed,
   setIsCollapsed,
-  config
+  config,
+  onOpenAddressModal
 }) => {
   const [copiedReferral, setCopiedReferral] = useState(false);
   const [simulatedRole, setSimulatedRole] = useState<UserProfile['role'] | 'all'>('all');
@@ -806,34 +808,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <>
                   <button
                     onClick={() => {
-                      onOpenPartnerModal();
+                      if (onOpenAddressModal) onOpenAddressModal();
                       setIsMobileOpen(false);
                     }}
-                    className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 transition-all text-left border border-emerald-200"
-                    title="Vender en Sanpi Market"
+                    className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-bold text-purple-900 bg-purple-50 hover:bg-purple-100 transition-all text-left border border-purple-200 shadow-2xs"
+                    title="Mi Dirección de Envío para Compras"
                   >
-                    <Store className="w-4 h-4 shrink-0 text-emerald-600" />
+                    <MapPin className="w-4 h-4 shrink-0 text-purple-600" />
                     {!isCollapsed && (
                       <div className="flex-1 flex items-center justify-between truncate">
-                        <span className="truncate">Abrir Mi Tienda</span>
-                        <span className="text-[9px] bg-emerald-600 text-white font-black px-1.5 py-0.5 rounded-full ml-1">
-                          Vender
+                        <span className="truncate">Mi Dirección de Envío</span>
+                        <span className="text-[9px] bg-purple-200 text-purple-900 font-extrabold px-1.5 py-0.5 rounded-full ml-1">
+                          Compras
                         </span>
                       </div>
                     )}
                   </button>
 
                   <button
-                    onClick={() => {
-                      onOpenAuthModal('dropshipper');
-                      setIsMobileOpen(false);
-                    }}
-                    className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-bold text-purple-800 bg-purple-50 hover:bg-purple-100 transition-all text-left border border-purple-200"
-                    title="Hacer Dropshipping COD en RD"
+                    onClick={() => handleNav('track')}
+                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-bold transition-all text-left ${
+                      currentView === 'track'
+                        ? 'bg-purple-600 text-white shadow-sm shadow-purple-600/30'
+                        : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                    }`}
+                    title="Rastreo de Mis Compras"
                   >
-                    <Sparkles className="w-4 h-4 shrink-0 text-purple-600" />
+                    <Truck className="w-4 h-4 shrink-0 text-blue-500" />
                     {!isCollapsed && (
-                      <span className="truncate">Unirme como Dropshipper</span>
+                      <span className="truncate">Mis Envíos y Compras</span>
                     )}
                   </button>
                 </>
@@ -890,25 +893,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {!isCollapsed && <span className="truncate">Rastrear mi Paquete</span>}
               </button>
 
-              <button
-                onClick={() => handleNav('accounting')}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-bold transition-all text-left ${
-                  currentView === 'accounting'
-                    ? 'bg-slate-900 text-white shadow-xs'
-                    : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
-                }`}
-                title="Módulo de Contabilidad y Reportes Financieros"
-              >
-                <Calculator className="w-4 h-4 shrink-0 text-emerald-500" />
-                {!isCollapsed && (
-                  <div className="flex-1 flex items-center justify-between truncate">
-                    <span className="truncate">Contabilidad & Reportes</span>
-                    <span className="text-[9px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded-full ml-1">
-                      PDF/XLS
-                    </span>
-                  </div>
-                )}
-              </button>
+              {/* Only non-customers or admins see financial & accounting reports */}
+              {(isSuper || effectiveRole !== 'customer') && (
+                <button
+                  onClick={() => handleNav('accounting')}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-bold transition-all text-left ${
+                    currentView === 'accounting'
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                  }`}
+                  title="Módulo de Contabilidad y Reportes Financieros"
+                >
+                  <Calculator className="w-4 h-4 shrink-0 text-emerald-500" />
+                  {!isCollapsed && (
+                    <div className="flex-1 flex items-center justify-between truncate">
+                      <span className="truncate">Contabilidad & Reportes</span>
+                      <span className="text-[9px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded-full ml-1">
+                        PDF/XLS
+                      </span>
+                    </div>
+                  )}
+                </button>
+              )}
 
               <button
                 onClick={() => {

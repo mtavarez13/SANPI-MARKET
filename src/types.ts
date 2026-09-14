@@ -105,6 +105,17 @@ export interface LogisticsProviderConfig {
   updatedAt: string;
 }
 
+export interface CustomerShippingAddress {
+  fullName: string;
+  phone: string;
+  email?: string;
+  province: string;
+  city: string; // Municipio o Sector
+  address: string; // Calle, Número, Residencial, Apto
+  notes?: string; // Indicaciones / Referencia para el mensajero
+  updatedAt?: string;
+}
+
 export interface UserProfile {
   uid: string;
   email: string | null;
@@ -113,6 +124,10 @@ export interface UserProfile {
   role: 'customer' | 'dropshipper' | 'partner' | 'supplier' | 'carrier' | 'admin';
   phone?: string;
   province?: string;
+  city?: string;
+  address?: string;
+  notes?: string;
+  shippingAddress?: CustomerShippingAddress;
   storeName?: string;
   companyName?: string;
   apiKey?: string;

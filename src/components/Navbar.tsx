@@ -44,6 +44,7 @@ interface NavbarProps {
   config?: SiteThemeConfig;
   onToggleSidebar?: () => void;
   isSidebarOpen?: boolean;
+  onOpenAddressModal?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -65,7 +66,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSelectLocation,
   config,
   onToggleSidebar,
-  isSidebarOpen
+  isSidebarOpen,
+  onOpenAddressModal
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
@@ -437,9 +439,28 @@ export const Navbar: React.FC<NavbarProps> = ({
                       </div>
                     </div>
 
-                    <div className="py-1">
-                      {/* User's Own Store Link */}
-                      {(() => {
+                    <div className="py-1 space-y-0.5">
+                      {/* Customer Address Registration - Direct Access for easy shipping pre-fill */}
+                      {onOpenAddressModal && (
+                        <button
+                          onClick={() => {
+                            onOpenAddressModal();
+                            setProfileDropdownOpen(false);
+                          }}
+                          className="w-full text-left px-3 py-2 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-900 flex items-center justify-between transition-colors font-bold border border-purple-200 shadow-2xs"
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <MapPin className="w-4 h-4 text-purple-700" />
+                            <span>Mi Dirección de Envío</span>
+                          </div>
+                          <span className="text-[9px] bg-purple-200 text-purple-900 font-extrabold px-1.5 py-0.5 rounded">
+                            Envío Rápido
+                          </span>
+                        </button>
+                      )}
+
+                      {/* User's Own Store Link (Only for merchants / partners / dropshippers / admins) */}
+                      {currentUser.role !== 'customer' && (() => {
                         const userStore = stores.find(
                           (s) =>
                             (currentUser.uid && s.ownerId === currentUser.uid) ||
@@ -455,7 +476,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                                 setCurrentView('catalogs');
                                 setProfileDropdownOpen(false);
                               }}
-                              className="w-full text-left px-3 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-900 flex items-center justify-between transition-colors font-bold"
+                              className="w-full text-left px-3 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-800 flex items-center justify-between transition-colors font-semibold"
                             >
                               <div className="flex items-center gap-2 truncate">
                                 <Store className="w-4 h-4 text-slate-700 shrink-0" />
@@ -484,35 +505,19 @@ export const Navbar: React.FC<NavbarProps> = ({
                       })()}
 
                       <button
+                        onClick={() => handleNav('explore')}
+                        className="w-full text-left px-3 py-2 rounded-xl hover:bg-slate-50 text-slate-700 hover:text-slate-900 flex items-center gap-2.5 transition-colors"
+                      >
+                        <ShoppingBag className="w-4 h-4 text-slate-500" />
+                        <span>Explorar Productos</span>
+                      </button>
+
+                      <button
                         onClick={() => handleNav('catalogs')}
                         className="w-full text-left px-3 py-2 rounded-xl hover:bg-slate-50 text-slate-700 hover:text-slate-900 flex items-center gap-2.5 transition-colors"
                       >
                         <Store className="w-4 h-4 text-slate-500" />
                         <span>Todas las Tiendas Oficiales</span>
-                      </button>
-
-                      <button
-                        onClick={() => handleNav('dropship')}
-                        className="w-full text-left px-3 py-2 rounded-xl hover:bg-slate-50 text-slate-700 hover:text-slate-900 flex items-center gap-2.5 transition-colors"
-                      >
-                        <Sparkles className="w-4 h-4 text-purple-500" />
-                        <span>Hub Dropshipping RD</span>
-                      </button>
-
-                      <button
-                        onClick={() => handleNav('supplier')}
-                        className="w-full text-left px-3 py-2 rounded-xl hover:bg-purple-50 text-purple-700 flex items-center gap-2.5 transition-colors font-medium"
-                      >
-                        <Package className="w-4 h-4 text-purple-600" />
-                        <span>Portal Proveedor Mayorista</span>
-                      </button>
-
-                      <button
-                        onClick={() => handleNav('carrier')}
-                        className="w-full text-left px-3 py-2 rounded-xl hover:bg-blue-50 text-blue-700 flex items-center gap-2.5 transition-colors font-medium"
-                      >
-                        <Truck className="w-4 h-4 text-blue-600" />
-                        <span>Empresas de Transporte & API</span>
                       </button>
 
                       <button
@@ -523,18 +528,47 @@ export const Navbar: React.FC<NavbarProps> = ({
                         <span>Rastrear Mis Envíos</span>
                       </button>
 
-                      <button
-                        onClick={() => handleNav('accounting')}
-                        className="w-full text-left px-3 py-2 rounded-xl hover:bg-emerald-50 text-emerald-800 flex items-center justify-between transition-colors font-bold"
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <Calculator className="w-4 h-4 text-emerald-600" />
-                          <span>Contabilidad & Reportes</span>
-                        </div>
-                        <span className="text-[9px] bg-emerald-100 text-emerald-900 px-1.5 py-0.5 rounded font-black">
-                          PDF/XLS
-                        </span>
-                      </button>
+                      {/* Business & Logistics Modules: ONLY for non-customer roles or superAdmin */}
+                      {(currentUser.role !== 'customer' || superAdmin) && (
+                        <>
+                          <button
+                            onClick={() => handleNav('dropship')}
+                            className="w-full text-left px-3 py-2 rounded-xl hover:bg-slate-50 text-slate-700 hover:text-slate-900 flex items-center gap-2.5 transition-colors"
+                          >
+                            <Sparkles className="w-4 h-4 text-purple-500" />
+                            <span>Hub Dropshipping RD</span>
+                          </button>
+
+                          <button
+                            onClick={() => handleNav('supplier')}
+                            className="w-full text-left px-3 py-2 rounded-xl hover:bg-purple-50 text-purple-700 flex items-center gap-2.5 transition-colors font-medium"
+                          >
+                            <Package className="w-4 h-4 text-purple-600" />
+                            <span>Portal Proveedor Mayorista</span>
+                          </button>
+
+                          <button
+                            onClick={() => handleNav('carrier')}
+                            className="w-full text-left px-3 py-2 rounded-xl hover:bg-blue-50 text-blue-700 flex items-center gap-2.5 transition-colors font-medium"
+                          >
+                            <Truck className="w-4 h-4 text-blue-600" />
+                            <span>Empresas de Transporte & API</span>
+                          </button>
+
+                          <button
+                            onClick={() => handleNav('accounting')}
+                            className="w-full text-left px-3 py-2 rounded-xl hover:bg-emerald-50 text-emerald-800 flex items-center justify-between transition-colors font-bold"
+                          >
+                            <div className="flex items-center gap-2.5">
+                              <Calculator className="w-4 h-4 text-emerald-600" />
+                              <span>Contabilidad & Reportes</span>
+                            </div>
+                            <span className="text-[9px] bg-emerald-100 text-emerald-900 px-1.5 py-0.5 rounded font-black">
+                              PDF/XLS
+                            </span>
+                          </button>
+                        </>
+                      )}
 
                       {superAdmin && (
                         <button
