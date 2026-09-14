@@ -26,6 +26,8 @@ export interface PersistentRoleAssignment {
   role: 'customer' | 'dropshipper' | 'partner' | 'supplier' | 'carrier' | 'admin';
   email?: string;
   uid?: string;
+  phone?: string;
+  province?: string;
   plan?: StorePlan;
   storeName?: string;
   companyName?: string;
@@ -211,6 +213,8 @@ export async function signInWithGoogle(registrationOptions?: {
       createdAt: new Date().toISOString()
     };
 
+    const emailKey = fbUser.email ? fbUser.email.trim().toLowerCase().replace(/[^a-zA-Z0-9]/g, '_') : '';
+
     try {
       const userDocRef = doc(db, 'marketplace_users', fbUser.uid);
       const docSnap = await getDoc(userDocRef);
@@ -225,8 +229,6 @@ export async function signInWithGoogle(registrationOptions?: {
         };
       } else {
         isNewUser = true;
-        await setDoc(userDocRef, profile, { merge: true });
-        
         // Dispatch Welcome Email automatically for new user
         sendWelcomeEmail({
           name: profile.displayName || 'Socio Sanpi',
@@ -242,15 +244,39 @@ export async function signInWithGoogle(registrationOptions?: {
         
         profile.welcomeEmailSent = true;
       }
+
+      // CRITICAL: Always persist to both marketplace_users AND users collections
+      // using both UID and sanitized email key to guarantee reflection across all backends
+      await setDoc(userDocRef, profile, { merge: true });
+      if (emailKey) {
+        await setDoc(doc(db, 'marketplace_users', emailKey), profile, { merge: true });
+      }
+      await setDoc(doc(db, 'users', fbUser.uid), profile, { merge: true });
+      if (emailKey) {
+        await setDoc(doc(db, 'users', emailKey), profile, { merge: true });
+      }
     } catch (e) {
-      console.debug('Firestore user profile sync in memory cache:', e);
+      console.warn('Firestore user profile sync warning:', e);
     }
 
     // Save to localStorage for quick restore
     try {
       localStorage.setItem('sanpi_auth_user', JSON.stringify(profile));
+      
+      // Update registered users cache immediately
+      const rawLocal = localStorage.getItem('sanpi_registered_users');
+      let registeredList: UserProfile[] = rawLocal ? JSON.parse(rawLocal) : [];
+      registeredList = registeredList.filter(u => u.uid !== profile.uid && u.email?.toLowerCase() !== profile.email?.toLowerCase());
+      registeredList.unshift(profile);
+      localStorage.setItem('sanpi_registered_users', JSON.stringify(registeredList));
     } catch {
       // Ignore localStorage error
+    }
+
+    // Broadcast synchronization event to admin panels
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('sanpi_user_registered', { detail: profile }));
+      window.dispatchEvent(new CustomEvent('sanpi_users_updated', { detail: profile }));
     }
 
     return { user: fbUser, profile, isNewUser };
@@ -363,8 +389,17 @@ export async function signInWithEmailPassword(email: string, _password: string):
     // Persist
     try {
       localStorage.setItem('sanpi_auth_user', JSON.stringify(detectedProfile));
-      const userDocRef = doc(db, 'marketplace_users', detectedProfile.uid);
-      setDoc(userDocRef, detectedProfile, { merge: true }).catch(() => {});
+      const emailKey = cleanEmail.replace(/[^a-zA-Z0-9]/g, '_');
+      await setDoc(doc(db, 'marketplace_users', detectedProfile.uid), detectedProfile, { merge: true }).catch(() => {});
+      if (emailKey) {
+        await setDoc(doc(db, 'marketplace_users', emailKey), detectedProfile, { merge: true }).catch(() => {});
+        await setDoc(doc(db, 'users', emailKey), detectedProfile, { merge: true }).catch(() => {});
+      }
+      await setDoc(doc(db, 'users', detectedProfile.uid), detectedProfile, { merge: true }).catch(() => {});
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('sanpi_user_registered', { detail: detectedProfile }));
+      }
     } catch {}
 
     return { profile: detectedProfile };
@@ -475,8 +510,24 @@ export async function registerWithEmail(params: {
     // 3. Persist to Firestore & LocalStorage
     try {
       localStorage.setItem('sanpi_auth_user', JSON.stringify(profile));
-      const userDocRef = doc(db, 'marketplace_users', profile.uid);
-      await setDoc(userDocRef, profile, { merge: true });
+      const emailKey = cleanEmail.replace(/[^a-zA-Z0-9]/g, '_');
+      await setDoc(doc(db, 'marketplace_users', profile.uid), profile, { merge: true });
+      if (emailKey) {
+        await setDoc(doc(db, 'marketplace_users', emailKey), profile, { merge: true });
+        await setDoc(doc(db, 'users', emailKey), profile, { merge: true });
+      }
+      await setDoc(doc(db, 'users', profile.uid), profile, { merge: true });
+
+      const rawLocal = localStorage.getItem('sanpi_registered_users');
+      let registeredList: UserProfile[] = rawLocal ? JSON.parse(rawLocal) : [];
+      registeredList = registeredList.filter(u => u.uid !== profile.uid && u.email?.toLowerCase() !== cleanEmail);
+      registeredList.unshift(profile);
+      localStorage.setItem('sanpi_registered_users', JSON.stringify(registeredList));
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('sanpi_user_registered', { detail: profile }));
+        window.dispatchEvent(new CustomEvent('sanpi_users_updated', { detail: profile }));
+      }
     } catch (e) {
       console.debug('Firestore registration cache:', e);
     }
@@ -662,28 +713,60 @@ export const DEFAULT_REGISTERED_USERS: UserProfile[] = [
     province: 'Santiago',
     referralCode: 'SANPI-VIP-JUAN12',
     createdAt: '2026-03-01T15:20:00.000Z'
+  },
+  {
+    uid: 'user_google_sanpimarketplace',
+    email: 'sanpimarketplace@gmail.com',
+    displayName: 'Sanpi Marketplace',
+    photoURL: 'https://api.dicebear.com/7.x/initials/svg?seed=sanpimarketplace%40gmail.com',
+    role: 'customer',
+    phone: '809-555-0199',
+    province: 'Distrito Nacional',
+    referralCode: 'SANPI-VIP-SANPIMK01',
+    welcomeEmailSent: true,
+    createdAt: '2026-09-14T00:00:00.000Z'
   }
 ];
 
 /**
- * Fetch all registered users from Firestore and local cache
+ * Fetch all registered users from Firestore (marketplace_users, users, stores, subscriptions) and local cache
  */
 export async function fetchAllRegisteredUsers(): Promise<UserProfile[]> {
-  const usersMap = new Map<string, UserProfile>();
+  // Map indexed by normalized email or uid
+  const emailMap = new Map<string, UserProfile>();
+  const uidMap = new Map<string, UserProfile>();
 
-  // 1. Load defaults first
-  DEFAULT_REGISTERED_USERS.forEach(u => {
-    usersMap.set(u.uid, { ...u });
-  });
+  const registerOrMerge = (user: UserProfile) => {
+    if (!user) return;
+    const cleanEmail = user.email ? user.email.trim().toLowerCase() : '';
+    const key = cleanEmail || user.uid;
+    if (!key) return;
+
+    const existing = emailMap.get(key) || (user.uid ? uidMap.get(user.uid) : undefined);
+    const merged: UserProfile = {
+      ...(existing || {}),
+      ...user,
+      uid: user.uid || existing?.uid || `user_${Date.now()}`,
+      email: cleanEmail || existing?.email || '',
+      displayName: user.displayName || existing?.displayName || cleanEmail.split('@')[0] || 'Usuario Sanpi',
+      photoURL: user.photoURL || existing?.photoURL || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(cleanEmail || 'user')}`,
+      role: isSuperAdmin(cleanEmail) ? 'admin' : (user.role || existing?.role || 'customer'),
+      createdAt: existing?.createdAt || user.createdAt || new Date().toISOString()
+    };
+
+    if (cleanEmail) emailMap.set(cleanEmail, merged);
+    if (merged.uid) uidMap.set(merged.uid, merged);
+  };
+
+  // 1. Load defaults first (including sanpimarketplace@gmail.com)
+  DEFAULT_REGISTERED_USERS.forEach(u => registerOrMerge({ ...u }));
 
   // 2. Load from localStorage cache
   try {
     const rawLocal = localStorage.getItem('sanpi_registered_users');
     if (rawLocal) {
       const parsed = JSON.parse(rawLocal) as UserProfile[];
-      parsed.forEach(u => {
-        if (u.uid) usersMap.set(u.uid, { ...usersMap.get(u.uid), ...u });
-      });
+      parsed.forEach(u => registerOrMerge(u));
     }
   } catch (e) {
     console.debug('Local storage users read cache warning:', e);
@@ -691,22 +774,21 @@ export async function fetchAllRegisteredUsers(): Promise<UserProfile[]> {
 
   // 3. Current logged in user
   const currentUser = getCurrentStoredUser();
-  if (currentUser?.uid) {
-    usersMap.set(currentUser.uid, {
-      ...usersMap.get(currentUser.uid),
+  if (currentUser?.uid || currentUser?.email) {
+    registerOrMerge({
       ...currentUser,
       role: isSuperAdmin(currentUser.email) ? 'admin' : currentUser.role
     });
   }
 
-  // 4. Fetch live from Firestore
+  // 4. Fetch live from Firestore collection 'marketplace_users'
   try {
     const querySnap = await getDocs(collection(db, 'marketplace_users'));
     querySnap.forEach(docSnap => {
       const data = docSnap.data() as UserProfile;
-      if (data && docSnap.id) {
+      if (data) {
         const uid = data.uid || docSnap.id;
-        usersMap.set(uid, {
+        registerOrMerge({
           ...data,
           uid,
           role: isSuperAdmin(data.email) ? 'admin' : (data.role || 'customer')
@@ -717,7 +799,74 @@ export async function fetchAllRegisteredUsers(): Promise<UserProfile[]> {
     console.warn('Firestore marketplace_users query fallback to cache:', err);
   }
 
-  // 5. Fetch live user_role_assignments from Firestore if available
+  // 5. Fetch live from Firestore collection 'users'
+  try {
+    const usersSnap = await getDocs(collection(db, 'users'));
+    usersSnap.forEach(docSnap => {
+      const data = docSnap.data() as UserProfile;
+      if (data) {
+        const uid = data.uid || docSnap.id;
+        registerOrMerge({
+          ...data,
+          uid,
+          role: isSuperAdmin(data.email) ? 'admin' : (data.role || 'customer')
+        });
+      }
+    });
+  } catch (err) {
+    console.debug('Firestore users collection query notice:', err);
+  }
+
+  // 6. Cross-reference partner store owners from Firestore 'stores'
+  try {
+    const storesSnap = await getDocs(collection(db, 'stores'));
+    storesSnap.forEach(docSnap => {
+      const s = docSnap.data() as any;
+      if (s && s.ownerEmail) {
+        const cleanEmail = s.ownerEmail.trim().toLowerCase();
+        if (cleanEmail && !emailMap.has(cleanEmail)) {
+          registerOrMerge({
+            uid: s.ownerId || `partner_${docSnap.id}`,
+            email: cleanEmail,
+            displayName: s.ownerName || s.name || 'Socio Tienda',
+            photoURL: s.logoUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(cleanEmail)}`,
+            role: 'partner',
+            storeName: s.name,
+            phone: s.phone,
+            province: s.province || 'Distrito Nacional',
+            createdAt: s.createdAt || new Date().toISOString()
+          });
+        }
+      }
+    });
+  } catch {}
+
+  // 7. Cross-reference subscription applications from Firestore 'marketplace_subscriptions'
+  try {
+    const subSnap = await getDocs(collection(db, 'marketplace_subscriptions'));
+    subSnap.forEach(docSnap => {
+      const sub = docSnap.data() as any;
+      if (sub && sub.email) {
+        const cleanEmail = sub.email.trim().toLowerCase();
+        if (cleanEmail && !emailMap.has(cleanEmail)) {
+          registerOrMerge({
+            uid: `sub_user_${docSnap.id}`,
+            email: cleanEmail,
+            displayName: sub.ownerName || sub.storeName || 'Socio Tienda',
+            photoURL: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(cleanEmail)}`,
+            role: 'partner',
+            storeName: sub.storeName,
+            phone: sub.phone,
+            province: sub.province || 'Distrito Nacional',
+            plan: sub.plan || 'pro',
+            createdAt: sub.requestedAt || new Date().toISOString()
+          });
+        }
+      }
+    });
+  } catch {}
+
+  // 8. Fetch live user_role_assignments from Firestore if available
   try {
     const roleSnap = await getDocs(collection(db, 'user_role_assignments'));
     roleSnap.forEach(docSnap => {
@@ -738,9 +887,9 @@ export async function fetchAllRegisteredUsers(): Promise<UserProfile[]> {
     });
   } catch {}
 
-  // 6. Apply persistent role assignments so Super Admin assignments are permanently enforced
+  // 9. Apply persistent role assignments so Super Admin assignments are permanently enforced
   const persistentAssignments = getAllPersistentRoleAssignments();
-  usersMap.forEach((user) => {
+  emailMap.forEach((user) => {
     if (isSuperAdmin(user.email)) {
       user.role = 'admin';
       return;
@@ -757,7 +906,7 @@ export async function fetchAllRegisteredUsers(): Promise<UserProfile[]> {
     }
   });
 
-  const allUsers = Array.from(usersMap.values());
+  const allUsers = Array.from(emailMap.values());
   // Sort super admins first, then by date descending
   allUsers.sort((a, b) => {
     if (isSuperAdmin(a.email)) return -1;
@@ -827,13 +976,15 @@ export async function updateUserRoleAndProfile(
     assignedBy: 'super_admin'
   });
 
-  // Update in Firestore
+  // Update in Firestore (both marketplace_users and users collections)
   try {
     const userDocRef = doc(db, 'marketplace_users', merged.uid);
     await setDoc(userDocRef, merged, { merge: true });
+    await setDoc(doc(db, 'users', merged.uid), merged, { merge: true });
     if (merged.email) {
-      const emailDocRef = doc(db, 'marketplace_users', merged.email.trim().toLowerCase().replace(/[^a-zA-Z0-9]/g, '_'));
-      await setDoc(emailDocRef, merged, { merge: true });
+      const emailKey = merged.email.trim().toLowerCase().replace(/[^a-zA-Z0-9]/g, '_');
+      await setDoc(doc(db, 'marketplace_users', emailKey), merged, { merge: true });
+      await setDoc(doc(db, 'users', emailKey), merged, { merge: true });
     }
   } catch (err) {
     console.warn('Firestore user update error:', err);
@@ -864,6 +1015,7 @@ export async function updateUserRoleAndProfile(
   // Dispatch global custom event for instant UI reactivity across components
   try {
     window.dispatchEvent(new CustomEvent('sanpi_user_role_updated', { detail: merged }));
+    window.dispatchEvent(new CustomEvent('sanpi_users_updated', { detail: merged }));
     window.dispatchEvent(new Event('storage'));
   } catch {}
 
@@ -914,8 +1066,13 @@ export async function createRegisteredUser(
   };
 
   try {
-    const userDocRef = doc(db, 'marketplace_users', uid);
-    await setDoc(userDocRef, newUser, { merge: true });
+    const emailKey = cleanEmail ? cleanEmail.replace(/[^a-zA-Z0-9]/g, '_') : '';
+    await setDoc(doc(db, 'marketplace_users', uid), newUser, { merge: true });
+    await setDoc(doc(db, 'users', uid), newUser, { merge: true });
+    if (emailKey) {
+      await setDoc(doc(db, 'marketplace_users', emailKey), newUser, { merge: true });
+      await setDoc(doc(db, 'users', emailKey), newUser, { merge: true });
+    }
   } catch (err) {
     console.warn('Firestore create user error:', err);
   }
@@ -926,16 +1083,26 @@ export async function createRegisteredUser(
     localStorage.setItem('sanpi_registered_users', JSON.stringify(allUsers));
   } catch {}
 
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('sanpi_user_registered', { detail: newUser }));
+    window.dispatchEvent(new CustomEvent('sanpi_users_updated', { detail: newUser }));
+  }
+
   return newUser;
 }
 
 /**
  * Deletes a registered user
  */
-export async function deleteRegisteredUser(uid: string): Promise<boolean> {
+export async function deleteRegisteredUser(uid: string, email?: string): Promise<boolean> {
   try {
-    const userDocRef = doc(db, 'marketplace_users', uid);
-    await deleteDoc(userDocRef);
+    await deleteDoc(doc(db, 'marketplace_users', uid));
+    await deleteDoc(doc(db, 'users', uid));
+    if (email) {
+      const emailKey = email.trim().toLowerCase().replace(/[^a-zA-Z0-9]/g, '_');
+      await deleteDoc(doc(db, 'marketplace_users', emailKey)).catch(() => {});
+      await deleteDoc(doc(db, 'users', emailKey)).catch(() => {});
+    }
   } catch (err) {
     console.warn('Firestore delete user error:', err);
   }
@@ -944,11 +1111,79 @@ export async function deleteRegisteredUser(uid: string): Promise<boolean> {
     const rawLocal = localStorage.getItem('sanpi_registered_users');
     if (rawLocal) {
       const parsed = JSON.parse(rawLocal) as UserProfile[];
-      const filtered = parsed.filter(u => u.uid !== uid);
+      const filtered = parsed.filter(u => u.uid !== uid && (!email || u.email?.toLowerCase() !== email.toLowerCase()));
       localStorage.setItem('sanpi_registered_users', JSON.stringify(filtered));
     }
   } catch {}
 
   return true;
+}
+
+/**
+ * Global authentication observer that verifies and auto-syncs any signed in user
+ * to the Firestore backend and local database immediately.
+ */
+export function setupGlobalAuthObserver(onUserLoaded?: (user: UserProfile | null) => void) {
+  return onAuthStateChanged(auth, async (fbUser) => {
+    if (fbUser && !fbUser.isAnonymous) {
+      const isUserAdmin = isSuperAdmin(fbUser.email);
+      const persistentAssignment = getPersistentRoleAssignment(fbUser.email, fbUser.uid);
+      const emailKey = fbUser.email ? fbUser.email.trim().toLowerCase().replace(/[^a-zA-Z0-9]/g, '_') : '';
+
+      let profile: UserProfile | null = null;
+      try {
+        const snap = await getDoc(doc(db, 'marketplace_users', fbUser.uid));
+        if (snap.exists()) {
+          profile = snap.data() as UserProfile;
+        } else if (emailKey) {
+          const emailSnap = await getDoc(doc(db, 'marketplace_users', emailKey));
+          if (emailSnap.exists()) {
+            profile = emailSnap.data() as UserProfile;
+          }
+        }
+      } catch (err) {
+        console.debug('Error reading user in observer:', err);
+      }
+
+      if (!profile) {
+        profile = {
+          uid: fbUser.uid,
+          email: fbUser.email || '',
+          displayName: fbUser.displayName || (isUserAdmin ? 'Martín Tavárez Gómez (Super Admin)' : 'Usuario Sanpi'),
+          photoURL: fbUser.photoURL || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(fbUser.displayName || fbUser.email || 'Sanpi')}`,
+          role: isUserAdmin ? 'admin' : (persistentAssignment?.role || 'customer'),
+          phone: persistentAssignment?.phone || '809-000-0000',
+          province: 'Distrito Nacional',
+          referralCode: generateUserReferralCode('customer', fbUser.displayName || '', fbUser.email || ''),
+          welcomeEmailSent: false,
+          createdAt: new Date().toISOString()
+        };
+      }
+
+      // Sync to Firestore
+      try {
+        await setDoc(doc(db, 'marketplace_users', fbUser.uid), profile, { merge: true });
+        await setDoc(doc(db, 'users', fbUser.uid), profile, { merge: true });
+        if (emailKey) {
+          await setDoc(doc(db, 'marketplace_users', emailKey), profile, { merge: true });
+          await setDoc(doc(db, 'users', emailKey), profile, { merge: true });
+        }
+      } catch (err) {
+        console.debug('Global observer firestore sync:', err);
+      }
+
+      // Update local storage
+      try {
+        localStorage.setItem('sanpi_auth_user', JSON.stringify(profile));
+        const rawLocal = localStorage.getItem('sanpi_registered_users');
+        let registeredList: UserProfile[] = rawLocal ? JSON.parse(rawLocal) : [];
+        registeredList = registeredList.filter(u => u.uid !== profile!.uid && u.email?.toLowerCase() !== profile!.email?.toLowerCase());
+        registeredList.unshift(profile);
+        localStorage.setItem('sanpi_registered_users', JSON.stringify(registeredList));
+      } catch {}
+
+      if (onUserLoaded) onUserLoaded(profile);
+    }
+  });
 }
 

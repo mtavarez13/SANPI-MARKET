@@ -108,6 +108,22 @@ export const AdminUsersManager: React.FC<AdminUsersManagerProps> = ({
 
   useEffect(() => {
     loadUsers();
+
+    const handleUserUpdate = () => {
+      loadUsers();
+    };
+
+    window.addEventListener('sanpi_user_registered', handleUserUpdate);
+    window.addEventListener('sanpi_users_updated', handleUserUpdate);
+    window.addEventListener('sanpi_user_role_updated', handleUserUpdate);
+    window.addEventListener('storage', handleUserUpdate);
+
+    return () => {
+      window.removeEventListener('sanpi_user_registered', handleUserUpdate);
+      window.removeEventListener('sanpi_users_updated', handleUserUpdate);
+      window.removeEventListener('sanpi_user_role_updated', handleUserUpdate);
+      window.removeEventListener('storage', handleUserUpdate);
+    };
   }, []);
 
   const showToast = (msg: string) => {
@@ -307,8 +323,8 @@ export const AdminUsersManager: React.FC<AdminUsersManagerProps> = ({
     }
 
     try {
-      await deleteRegisteredUser(user.uid);
-      setUsers(prev => prev.filter(u => u.uid !== user.uid));
+      await deleteRegisteredUser(user.uid, user.email);
+      setUsers(prev => prev.filter(u => u.uid !== user.uid && (!user.email || u.email?.toLowerCase() !== user.email.toLowerCase())));
       showToast(`Usuario eliminado correctamente.`);
       if (onRefreshParent) onRefreshParent();
     } catch (err: any) {

@@ -25,7 +25,7 @@ import { FloatingWhatsApp } from './components/FloatingWhatsApp';
 import { sanpiManager } from './lib/storeManager';
 import { Article, CartItem, Delivery, LandingPageConfig, StorePlan, UserProfile } from './types';
 import { validateFirebaseConnection } from './lib/firebase';
-import { getCurrentStoredUser, isSuperAdmin } from './lib/authService';
+import { getCurrentStoredUser, isSuperAdmin, setupGlobalAuthObserver } from './lib/authService';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<'explore' | 'catalogs' | 'dropship' | 'landing_page' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier'>('explore');
@@ -157,9 +157,17 @@ export default function App() {
     };
     window.addEventListener('sanpi_user_role_updated', handleRoleUpdated);
 
+    // Global auth observer to auto-sync Google and email logged in users
+    const authUnsubscribe = setupGlobalAuthObserver((loadedUser) => {
+      if (loadedUser) {
+        setCurrentUser(loadedUser);
+      }
+    });
+
     return () => {
       window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('sanpi_user_role_updated', handleRoleUpdated);
+      authUnsubscribe();
       unsubscribe();
     };
   }, []);
