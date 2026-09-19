@@ -153,11 +153,15 @@ export const Navbar: React.FC<NavbarProps> = ({
   };
 
   const superAdmin = isSuperAdmin(currentUser?.email);
+  const isAdminUser = superAdmin || currentUser?.role === 'admin';
 
   const getRoleLabel = () => {
     if (superAdmin) return 'Super Admin';
+    if (currentUser?.role === 'admin') return 'Administrador';
     if (currentUser?.role === 'partner') return 'Tienda Oficial';
     if (currentUser?.role === 'dropshipper') return 'Dropshipper Pro';
+    if (currentUser?.role === 'supplier') return 'Proveedor Mayorista';
+    if (currentUser?.role === 'carrier') return 'Transportista';
     return 'Comprador Verificado';
   };
 
@@ -570,7 +574,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                         </>
                       )}
 
-                      {superAdmin && (
+                      {isAdminUser && (
                         <button
                           onClick={() => handleNav('admin')}
                           className="w-full text-left px-3 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 flex items-center gap-2.5 transition-colors font-bold border border-amber-200"

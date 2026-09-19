@@ -35,6 +35,16 @@ async function startServer() {
     res.json({ status: 'ok', time: new Date().toISOString() });
   });
 
+  // Direct download endpoint for the App Hosting ZIP package
+  app.get('/api/download-app-zip', (req, res) => {
+    const zipPath = path.join(process.cwd(), 'sanpi-marketplace-app-hosting.zip');
+    res.download(zipPath, 'sanpi-marketplace-app-hosting.zip', (err) => {
+      if (err && !res.headersSent) {
+        res.status(404).json({ error: 'ZIP package not found or could not be served' });
+      }
+    });
+  });
+
   // Helper function to build authentication and transport headers
   const buildCarrierHeaders = (options: {
     apiKey?: string;

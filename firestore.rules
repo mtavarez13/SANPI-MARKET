@@ -1,26 +1,97 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSuperAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'martin.tavarez.gomez@gmail.com' ||
+        request.auth.token.email == 'sanpimarkeplace@gmail.com' ||
+        request.auth.token.email == 'sanpimarketplace@gmail.com' ||
+        request.auth.uid == 'jl3RcRbikZWCdw08NLf8kWLOcJB3'
+      );
+    }
+
+    function isAdmin() {
+      return isSuperAdmin() || (
+        isSignedIn() && (
+          (exists(/databases/$(database)/documents/user_role_assignments/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/user_role_assignments/$(request.auth.uid)).data.role == 'admin') ||
+          (request.auth.token.email != null &&
+           exists(/databases/$(database)/documents/user_role_assignments/$(request.auth.token.email)) &&
+           get(/databases/$(database)/documents/user_role_assignments/$(request.auth.token.email)).data.role == 'admin')
+        )
+      );
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && (
+        request.auth.uid == userId ||
+        (request.auth.token.email != null && request.auth.token.email == userId)
+      );
+    }
+
+    // Stores: Public catalog reading, partner/admin updates
     match /stores/{storeId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow create: if isSignedIn();
+      allow update, delete: if isAdmin() || (isSignedIn() && (resource.data.ownerEmail == request.auth.token.email || resource.data.ownerId == request.auth.uid));
     }
+
+    // Articles / Products: Public reading, partner/admin creation and edits
     match /articles/{articleId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow create, update, delete: if isSignedIn();
     }
+
+    // Deliveries & Logistics
     match /deliveries/{deliveryId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow create, update, delete: if isSignedIn();
     }
+
+    // Transactions / Ledger
     match /transactions/{transactionId} {
-      allow read, write: if true;
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
     }
+
+    // Subscriptions for partner stores
     match /marketplace_subscriptions/{subId} {
-      allow read, write: if true;
+      allow read: if isSignedIn();
+      allow create: if true;
+      allow update, delete: if isAdmin();
     }
+
+    // Operational Expenses: Admins only
     match /expenses/{expenseId} {
-      allow read, write: if true;
+      allow read, write: if isAdmin();
     }
+
+    // User Profiles
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() || isOwner(userId);
+    }
+
+    match /marketplace_users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() || isOwner(userId);
+    }
+
+    // Persistent Role Assignments: Read by user/admin, managed by admins
+    match /user_role_assignments/{assignmentId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Catch-all for authenticated operations across other app modules
     match /{document=**} {
-      allow read, write: if true;
+      allow read, write: if isSignedIn();
     }
   }
 }
+

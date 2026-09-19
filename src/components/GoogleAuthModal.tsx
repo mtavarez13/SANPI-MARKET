@@ -79,6 +79,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
   // UI State
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isNotRegistered, setIsNotRegistered] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -97,6 +98,8 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
       setActiveTab('login');
       setRegisterRole(defaultRole);
     }
+    setError(null);
+    setIsNotRegistered(false);
   }, [currentUser, defaultRole, isOpen]);
 
   if (!isOpen) return null;
@@ -105,6 +108,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
   const handleGoogleAuth = async (isRegistrationFlow: boolean = false) => {
     setLoading(true);
     setError(null);
+    setIsNotRegistered(false);
     setSuccessMessage(null);
     try {
       const result = await signInWithGoogle(
@@ -115,13 +119,17 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
               storeName: registerRole === 'partner' ? storeName.trim() : undefined,
               phone: phone.trim(),
               province,
-              referredByCode: referredByCode.trim()
+              referredByCode: referredByCode.trim(),
+              isRegistration: true
             }
           : undefined
       );
 
       if (result.error) {
         setError(result.error);
+        if (result.notRegistered) {
+          setIsNotRegistered(true);
+        }
         setLoading(false);
         return;
       }
@@ -168,11 +176,15 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
     }
     setLoading(true);
     setError(null);
+    setIsNotRegistered(false);
     setSuccessMessage(null);
 
     const res = await signInWithEmailPassword(email, password);
     if (res.error) {
       setError(res.error);
+      if (res.notRegistered) {
+        setIsNotRegistered(true);
+      }
       setLoading(false);
       return;
     }
@@ -375,9 +387,25 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
           
           {/* Alerts */}
           {error && (
-            <div className="p-3.5 bg-rose-950/60 border border-rose-800/80 rounded-2xl text-rose-300 text-xs flex items-start gap-2 animate-in fade-in">
+            <div className="p-3.5 bg-rose-950/60 border border-rose-800/80 rounded-2xl text-rose-300 text-xs flex items-start gap-2.5 animate-in fade-in">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" />
-              <div className="flex-1 leading-relaxed">{error}</div>
+              <div className="flex-1 space-y-2">
+                <div className="leading-relaxed font-medium">{error}</div>
+                {isNotRegistered && activeTab === 'login' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('register');
+                      setError(null);
+                      setIsNotRegistered(false);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 border border-purple-400/40"
+                  >
+                    <User className="w-3.5 h-3.5" />
+                    <span>Crear cuenta (Registrarme ahora)</span>
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
@@ -397,6 +425,10 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
                 <p className="text-xs text-slate-400">
                   Accede a tu panel como Comprador, Dropshipper o Tienda Mayorista.
                 </p>
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-500/10 border border-amber-500/30 rounded-full text-[11px] text-amber-300 mt-1">
+                  <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Acceso restringido únicamente a correos registrados</span>
+                </div>
               </div>
 
               {/* Google 1-Click Access Button */}

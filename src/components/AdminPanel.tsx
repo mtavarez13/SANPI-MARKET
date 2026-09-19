@@ -116,6 +116,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onNavigateToAccounting
 }) => {
   const isMartinSuperAdmin = isSuperAdmin(currentUser?.email);
+  const isPlatformAdmin = isMartinSuperAdmin || currentUser?.role === 'admin';
   const [activeTab, setActiveTab] = useState<'users' | 'subs' | 'stores' | 'referrals' | 'dropshippers' | 'landing_pages' | 'config' | 'finance' | 'expenses' | 'map' | 'plans' | 'branding'>(initialTab);
   
   useEffect(() => {
@@ -124,7 +125,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   }, [initialTab]);
 
-  const [masterUnlocked, setMasterUnlocked] = useState<boolean>(isMartinSuperAdmin);
+  const [masterUnlocked, setMasterUnlocked] = useState<boolean>(isPlatformAdmin);
+
+  useEffect(() => {
+    if (isPlatformAdmin) {
+      setMasterUnlocked(true);
+    }
+  }, [isPlatformAdmin]);
   const [keyInput, setKeyInput] = useState<string>('');
   const [showKeyModal, setShowKeyModal] = useState<boolean>(false);
 
@@ -238,7 +245,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const handleUnlockMasterKey = (e: React.FormEvent) => {
     e.preventDefault();
-    if (keyInput.trim() === MASTER_SECURITY_KEY || keyInput.toLowerCase().trim() === 'martin2025' || isMartinSuperAdmin) {
+    if (keyInput.trim() === MASTER_SECURITY_KEY || keyInput.toLowerCase().trim() === 'martin2025' || isPlatformAdmin) {
       setMasterUnlocked(true);
       setShowKeyModal(false);
       setKeyInput('');
@@ -857,6 +864,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <FileText className="w-4 h-4 text-yellow-300" />
               Exportar Reporte Ejecutivo PDF
             </button>
+
+            {/* Download App Hosting ZIP Button */}
+            <a
+              href="/api/download-app-zip"
+              download="sanpi-marketplace-app-hosting.zip"
+              className="bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold px-5 py-2.5 rounded-2xl text-xs transition-all shadow-lg shadow-emerald-600/40 flex items-center gap-2 border border-emerald-300/30 active:scale-95 cursor-pointer no-underline"
+              title="Descargar paquete ZIP listo para Firebase App Hosting"
+            >
+              <Download className="w-4 h-4 text-white" />
+              <span>Descargar ZIP App Hosting</span>
+            </a>
           </div>
         </div>
 
