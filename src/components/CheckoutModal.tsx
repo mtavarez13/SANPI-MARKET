@@ -34,6 +34,7 @@ interface CheckoutModalProps {
   onRemoveFromCart: (articleId: string) => void;
   onUpdateQuantity: (articleId: string, quantity: number) => void;
   onOrderSuccess: (delivery: Delivery) => void;
+  onViewPurchases?: () => void;
   currentUser?: UserProfile | null;
   onOpenAddressModal?: () => void;
 }
@@ -45,6 +46,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   onRemoveFromCart,
   onUpdateQuantity,
   onOrderSuccess,
+  onViewPurchases,
   currentUser,
   onOpenAddressModal
 }) => {
@@ -200,20 +202,23 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
       setCreatedDelivery(delivery);
 
-      // Trigger Confetti Celebration
-      confetti({
-        particleCount: 80,
-        spread: 70,
-        origin: { y: 0.6 },
-        colors: ['#7c3aed', '#6d28d9', '#10b981', '#ffffff']
-      });
+      if (delivery.sachaPackStatus === 'enviado') {
+        confetti({
+          particleCount: 80,
+          spread: 70,
+          origin: { y: 0.6 },
+          colors: ['#7c3aed', '#6d28d9', '#10b981', '#ffffff']
+        });
+      }
 
       // Clear Cart
       onClearCart();
       onOrderSuccess(delivery);
     } catch (err) {
       console.error('Error creating order:', err);
-      alert('Hubo un error registrando la orden. Inténtalo nuevamente.');
+      const message = err instanceof Error ? err.message : String(err);
+      const code = typeof err === 'object' && err !== null && 'code' in err ? String(err.code) : '';
+      alert(`No se pudo registrar la orden${code ? ` (${code})` : ''}: ${message}`);
     } finally {
       setLoading(false);
     }
@@ -257,11 +262,11 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                   <Volume2 className="w-3.5 h-3.5 text-purple-700" />
                   Alerta "Sanpi" Disparada
                 </div>
-                <h3 className="text-2xl font-extrabold text-slate-900">¡Orden Registrada Exitosamente!</h3>
+                <h3 className="text-2xl font-extrabold text-slate-900">Orden registrada en Sanpi</h3>
                 <p className="text-xs text-slate-600 max-w-md mx-auto">
-                  {createdDelivery.paymentMethod === 'COD' || createdDelivery.paymentMethod === 'contra entrega'
-                    ? 'Tu orden ha sido registrada para despacho vía Sacha Pack Logistics. Pagarás en efectivo al mensajero cuando recibas tu paquete.'
-                    : 'Transferencia bancaria registrada. Tu pedido será despachado tras la verificación del comprobante.'}
+                  {createdDelivery.sachaPackStatus === 'enviado'
+                    ? 'La empresa de transporte recibió la solicitud de despacho. Consulta la guía para seguir tu paquete.'
+                    : 'El despacho todavía no fue confirmado por la empresa de transporte. Sanpi conserva tu orden y el equipo revisará la conexión.'}
                 </p>
               </div>
 
@@ -313,13 +318,23 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                       <span className="text-slate-500 font-mono text-[10px]">Tracking ID: {createdDelivery.trackingNumber}</span>
                     </div>
                   </div>
-                  <span className="bg-purple-50 text-purple-800 border border-purple-200 px-2 py-0.5 rounded-md font-mono text-[10px] font-bold">
-                    Webhook 200 OK
+                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${createdDelivery.sachaPackStatus === 'enviado' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-amber-50 text-amber-800 border border-amber-200'}`}>
+                    {createdDelivery.sachaPackStatus === 'enviado'
+                      ? `Despacho confirmado${createdDelivery.sachaPackResponse?.status ? ` (HTTP ${createdDelivery.sachaPackResponse.status})` : ''}`
+                      : createdDelivery.sachaPackStatus === 'error'
+                        ? `Despacho no confirmado${createdDelivery.sachaPackResponse?.status ? ` (HTTP ${createdDelivery.sachaPackResponse.status})` : ''}`
+                        : 'Despacho pendiente de confirmación'}
                   </span>
                 </div>
               </div>
 
               <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                {currentUser?.role === 'customer' && onViewPurchases && <button
+                  onClick={onViewPurchases}
+                  className="flex-1 bg-purple-700 hover:bg-purple-800 text-white font-bold py-3 rounded-xl text-xs transition-colors flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+                >
+                  <ShoppingBag className="w-4 h-4" /> Mis compras
+                </button>}
                 <button
                   onClick={() => speakSanpi()}
                   className="flex-1 bg-purple-50 hover:bg-purple-100 text-purple-900 font-bold py-3 rounded-xl text-xs transition-colors flex items-center justify-center gap-2 border border-purple-200 cursor-pointer"

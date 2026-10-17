@@ -8,14 +8,22 @@ import {
   addDoc,
   onSnapshot,
   query,
+  where,
+  limit,
   orderBy,
-  deleteDoc
+  deleteDoc,
+  writeBatch,
+  runTransaction
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType, SANPI_FLAT_SHIPPING_FEE } from './firebase';
+import { auth, db, handleFirestoreError, OperationType, SANPI_FLAT_SHIPPING_FEE } from './firebase';
 import { Article, Delivery, Expense, MarketplaceSubscription, Store, Transaction, LandingPageConfig, DropshipItem, SachaPackWebhookPayload, SachaPackWebhookResponse, LogisticsProviderConfig, PaymentMethod, UserLocationProfile, StoreReferralRecord, LogisticsConnectionTestResult, LogisticsInboundWebhookPayload, SanpiPlan, SiteThemeConfig, BankAccount, CarrierUser, DeliveryStatus } from '../types';
-import { INITIAL_ARTICLES, INITIAL_DELIVERIES, INITIAL_EXPENSES, INITIAL_STORES, INITIAL_SUBSCRIPTIONS, INITIAL_TRANSACTIONS, INITIAL_LANDING_PAGES, INITIAL_DROPSHIP_ITEMS, INITIAL_STORE_REFERRALS, DEFAULT_SANPI_PLANS, INITIAL_CARRIER_USERS } from '../data/seedData';
+import { INITIAL_ARTICLES, INITIAL_STORES, INITIAL_SUBSCRIPTIONS, INITIAL_LANDING_PAGES, INITIAL_DROPSHIP_ITEMS, INITIAL_STORE_REFERRALS, DEFAULT_SANPI_PLANS, INITIAL_CARRIER_USERS } from '../data/seedData';
 import { DEFAULT_SITE_THEME_CONFIG, DEFAULT_BANK_ACCOUNTS } from '../data/siteThemePresets';
 import { speakSanpi } from './audioTTS';
+import { initialDeliveryStatus, normalizeDeliveryStatus, totalToCollect, validateDeliveryTransition } from './deliveryWorkflow';
+import { carrierGuideFor, matchesDeliveryGuide } from './trackingAliases';
+import { createCodTrackingNumber } from './trackingNumber';
+import { uniqueLogisticsProviders } from './logisticsProviders';
 import {
   buildSachaPackPayload,
   sendToSachaPackWebhook,
@@ -23,7 +31,6 @@ import {
   testLogisticsConnection,
   DEFAULT_SACHA_PACK_STORE_ID,
   DEFAULT_SACHA_PACK_API_KEY,
-  SACHA_PACK_WEBHOOK_URL,
   DEFAULT_LOGISTICS_PROVIDERS,
   DEFAULT_LOGISTICS_JSON_TEMPLATE,
   populateJsonTemplate
@@ -190,10 +197,10 @@ export class SanpiStoreManager {
           reviews: a.reviews && a.reviews.length > 0 ? a.reviews : (seedMatch?.reviews || [])
         };
       });
-      this.deliveries = deliveriesRaw ? JSON.parse(deliveriesRaw) : INITIAL_DELIVERIES;
-      this.transactions = transactionsRaw ? JSON.parse(transactionsRaw) : INITIAL_TRANSACTIONS;
+      this.deliveries = (deliveriesRaw ? JSON.parse(deliveriesRaw) : []).map((d: Delivery) => ({ ...d, status: normalizeDeliveryStatus(d.status) }));
+      this.transactions = transactionsRaw ? JSON.parse(transactionsRaw) : [];
       this.subscriptions = subsRaw ? JSON.parse(subsRaw) : INITIAL_SUBSCRIPTIONS;
-      this.expenses = expRaw ? JSON.parse(expRaw) : INITIAL_EXPENSES;
+      this.expenses = expRaw ? JSON.parse(expRaw) : [];
       this.landingPages = lpRaw ? JSON.parse(lpRaw) : INITIAL_LANDING_PAGES;
       this.dropshipItems = dsRaw ? JSON.parse(dsRaw) : INITIAL_DROPSHIP_ITEMS;
       this.storeReferrals = refRaw ? JSON.parse(refRaw) : INITIAL_STORE_REFERRALS;
@@ -203,33 +210,30 @@ export class SanpiStoreManager {
       }
       const parsedProviders: LogisticsProviderConfig[] = provRaw ? JSON.parse(provRaw) : DEFAULT_LOGISTICS_PROVIDERS;
       
-      // Auto-migrate Sacha Pack Logistics to the active webhook endpoint and API key
-      this.logisticsProviders = parsedProviders.map(p => {
+      // Preserve each provider's configured endpoint while migrating legacy credentials and IDs.
+      this.logisticsProviders = uniqueLogisticsProviders(parsedProviders.map(p => {
         if (p.id === 'prov_sacha_pack' || p.code === 'sacha_pack') {
           return {
             ...p,
-            webhookUrl: p.webhookUrl.includes('sachapack.com') ? SACHA_PACK_WEBHOOK_URL : p.webhookUrl,
-            apiKey: p.apiKey || DEFAULT_SACHA_PACK_API_KEY,
-            authToken: p.authToken || DEFAULT_SACHA_PACK_API_KEY,
-            defaultStoreId: p.defaultStoreId || DEFAULT_SACHA_PACK_STORE_ID,
+            apiKey: p.apiKey === 'sk_sacha_wcrvnhqagxd86pqpxs1jfikvjq8mqmxt' ? '' : (p.apiKey || ''),
+            authToken: p.authToken === 'sk_sacha_wcrvnhqagxd86pqpxs1jfikvjq8mqmxt' ? '' : (p.authToken || ''),
+            defaultStoreId: p.defaultStoreId === 'sxOzEivG9GP9SvaVuF1nVpQZCOu1' ? DEFAULT_SACHA_PACK_STORE_ID : (p.defaultStoreId || DEFAULT_SACHA_PACK_STORE_ID),
             headers: {
               'Content-Type': 'application/json',
-              'Accept': 'application/json',
-              'x-api-key': p.apiKey || DEFAULT_SACHA_PACK_API_KEY,
-              ...(p.headers || {})
+              'Accept': 'application/json'
             }
           };
         }
         return p;
-      });
+      }));
     } catch (e) {
       console.warn('Fallback to seed data', e);
       this.stores = INITIAL_STORES;
       this.articles = INITIAL_ARTICLES;
-      this.deliveries = INITIAL_DELIVERIES;
-      this.transactions = INITIAL_TRANSACTIONS;
+      this.deliveries = [];
+      this.transactions = [];
       this.subscriptions = INITIAL_SUBSCRIPTIONS;
-      this.expenses = INITIAL_EXPENSES;
+      this.expenses = [];
       this.landingPages = INITIAL_LANDING_PAGES;
       this.dropshipItems = INITIAL_DROPSHIP_ITEMS;
       this.storeReferrals = INITIAL_STORE_REFERRALS;
@@ -274,12 +278,10 @@ export class SanpiStoreManager {
         return null;
       });
 
-      if (!deliveriesSnapshot || deliveriesSnapshot.empty) {
-        for (const d of INITIAL_DELIVERIES) {
-          await setDoc(doc(db, 'deliveries', d.id), d).catch(err => handleFirestoreError(err, OperationType.WRITE, `deliveries/${d.id}`));
-        }
-      } else {
-        this.deliveries = deliveriesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Delivery));
+      if (deliveriesSnapshot?.empty) {
+        this.deliveries = [];
+      } else if (deliveriesSnapshot) {
+        this.deliveries = deliveriesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), status: normalizeDeliveryStatus(doc.data().status) } as Delivery));
       }
 
       // 4. Transactions
@@ -288,11 +290,9 @@ export class SanpiStoreManager {
         return null;
       });
 
-      if (!txSnapshot || txSnapshot.empty) {
-        for (const t of INITIAL_TRANSACTIONS) {
-          await setDoc(doc(db, 'transactions', t.id), t).catch(err => handleFirestoreError(err, OperationType.WRITE, `transactions/${t.id}`));
-        }
-      } else {
+      if (txSnapshot?.empty) {
+        this.transactions = [];
+      } else if (txSnapshot) {
         this.transactions = txSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Transaction));
       }
 
@@ -316,11 +316,9 @@ export class SanpiStoreManager {
         return null;
       });
 
-      if (!expSnapshot || expSnapshot.empty) {
-        for (const exp of INITIAL_EXPENSES) {
-          await setDoc(doc(db, 'expenses', exp.id), exp).catch(err => handleFirestoreError(err, OperationType.WRITE, `expenses/${exp.id}`));
-        }
-      } else {
+      if (expSnapshot?.empty) {
+        this.expenses = [];
+      } else if (expSnapshot) {
         this.expenses = expSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Expense));
       }
 
@@ -358,27 +356,24 @@ export class SanpiStoreManager {
         return null;
       });
 
-      if (!provSnapshot || provSnapshot.empty) {
+      if (provSnapshot?.empty) {
         for (const p of DEFAULT_LOGISTICS_PROVIDERS) {
           await setDoc(doc(db, 'logistics_providers', p.id), p).catch(err => handleFirestoreError(err, OperationType.WRITE, `logistics_providers/${p.id}`));
         }
-      } else {
+      } else if (provSnapshot) {
         const docsProviders = provSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as LogisticsProviderConfig));
-        this.logisticsProviders = docsProviders.map(p => {
+        this.logisticsProviders = uniqueLogisticsProviders(docsProviders.map(p => {
           if (p.id === 'prov_sacha_pack' || p.code === 'sacha_pack') {
-            const isOutdated = p.webhookUrl.includes('sachapack.com') || !p.apiKey;
+            const isOutdated = p.defaultStoreId === 'sxOzEivG9GP9SvaVuF1nVpQZCOu1' || p.apiKey === 'sk_sacha_wcrvnhqagxd86pqpxs1jfikvjq8mqmxt';
             if (isOutdated) {
               const updatedProv = {
                 ...p,
-                webhookUrl: SACHA_PACK_WEBHOOK_URL,
-                apiKey: DEFAULT_SACHA_PACK_API_KEY,
-                authToken: DEFAULT_SACHA_PACK_API_KEY,
-                defaultStoreId: p.defaultStoreId || DEFAULT_SACHA_PACK_STORE_ID,
+                apiKey: p.apiKey === 'sk_sacha_wcrvnhqagxd86pqpxs1jfikvjq8mqmxt' ? '' : (p.apiKey || ''),
+                authToken: p.authToken === 'sk_sacha_wcrvnhqagxd86pqpxs1jfikvjq8mqmxt' ? '' : (p.authToken || ''),
+                defaultStoreId: p.defaultStoreId === 'sxOzEivG9GP9SvaVuF1nVpQZCOu1' ? DEFAULT_SACHA_PACK_STORE_ID : (p.defaultStoreId || DEFAULT_SACHA_PACK_STORE_ID),
                 headers: {
                   'Content-Type': 'application/json',
-                  'Accept': 'application/json',
-                  'x-api-key': DEFAULT_SACHA_PACK_API_KEY,
-                  ...(p.headers || {})
+                  'Accept': 'application/json'
                 }
               };
               setDoc(doc(db, 'logistics_providers', p.id), updatedProv).catch(() => {});
@@ -386,7 +381,7 @@ export class SanpiStoreManager {
             }
           }
           return p;
-        });
+        }));
       }
 
       // 10. Store Referrals
@@ -451,7 +446,7 @@ export class SanpiStoreManager {
         let isInitial = this.deliveries.length === 0;
         const updatedDeliveries: Delivery[] = [];
         snapshot.forEach((doc) => {
-          updatedDeliveries.push({ id: doc.id, ...doc.data() } as Delivery);
+          updatedDeliveries.push({ id: doc.id, ...doc.data(), status: normalizeDeliveryStatus(doc.data().status) } as Delivery);
         });
 
         if (!isInitial && updatedDeliveries.length > this.deliveries.length) {
@@ -595,6 +590,11 @@ export class SanpiStoreManager {
       customUnitPrice
     } = orderData;
     
+    await auth.authStateReady();
+    const isGuestCheckout = !auth.currentUser || auth.currentUser.isAnonymous;
+    if (isGuestCheckout && paymentMethod !== 'COD') {
+      throw new Error('Para comprar sin registrarte, selecciona pago contra entrega.');
+    }
     const store = this.stores.find(s => s.id === article.storeId);
     
     // Commission rate calculation according to business rules:
@@ -628,15 +628,16 @@ export class SanpiStoreManager {
       dropshipperProfit = Math.max(0, (unitPrice - article.wholesalePrice) * quantity);
     }
 
-    const randomNum = Math.floor(1000 + Math.random() * 9000);
-    const trackingNumber = `SANPI-COD-${randomNum}`;
-    const externalOrderId = `ORD-${randomNum}`;
+    const trackingNumber = createCodTrackingNumber(store?.name || article.storeId, province, municipality || city);
+    const externalOrderId = trackingNumber;
     const nowIso = new Date().toISOString();
     const barcode_imei = article.barcode_imei || '1234567890';
     
     // Resolve Logistics Provider for Store
     const provider = this.getLogisticsProviderForStore(article.storeId);
-    const storeIdToUse = store?.sachaPackStoreId || provider?.defaultStoreId || DEFAULT_SACHA_PACK_STORE_ID;
+    const configuredStoreId = store?.sachaPackStoreId || provider?.defaultStoreId;
+    const storeIdToUse = !configuredStoreId || configuredStoreId === 'sxOzEivG9GP9SvaVuF1nVpQZCOu1'
+      ? DEFAULT_SACHA_PACK_STORE_ID : configuredStoreId;
 
     // Build Logistics API Payload strictly matching required structure
     const sachaPayload: SachaPackWebhookPayload = buildSachaPackPayload({
@@ -646,7 +647,8 @@ export class SanpiStoreManager {
         {
           barcode_imei,
           quantity,
-          price: unitPrice
+          price: unitPrice,
+          name: article.name
         }
       ],
       customer: {
@@ -660,10 +662,12 @@ export class SanpiStoreManager {
       paymentMethod
     });
 
-    const deliveryId = `del_${Date.now()}`;
+    const deliveryId = trackingNumber;
+    const initialStatus = initialDeliveryStatus(store);
     const newDelivery: Delivery = {
       id: deliveryId,
       trackingNumber,
+      createdByUid: isGuestCheckout ? 'guest' : auth.currentUser!.uid,
       externalOrderId,
       customerName,
       customerPhone,
@@ -681,12 +685,19 @@ export class SanpiStoreManager {
       transferReceiptUrl,
       barcode_imei,
       totalCodAmount,
+      totalToCollect: totalToCollect(basePriceTotal, shippingFee, paymentMethod),
+      deliveryFee: shippingFee,
+      deliveryPayment: 0,
+      isPaidToOffice: false,
       basePrice: basePriceTotal,
       shippingFee,
+      quantity,
+      unitPriceAtSale: unitPrice,
+      unitCostAtSale: article.costPerItem ?? article.wholesalePrice ?? article.baseCost ?? 0,
       storeId: article.storeId,
       articleId: article.id,
       articleName: article.name,
-      status: 'pendiente',
+      status: initialStatus,
       isMarketplaceOrder: true,
       sourceType,
       landingPageSlug,
@@ -695,13 +706,12 @@ export class SanpiStoreManager {
       dropshipperProfit,
       logisticsProviderId: provider?.id || 'prov_sacha_pack',
       logisticsProviderName: provider?.name || 'Sacha Pack Logistics',
-      sachaPackStatus: 'enviado',
+      sachaPackStatus: 'pendiente',
       sachaPackPayload: sachaPayload,
-      sachaPackDispatchedAt: nowIso,
       createdAt: nowIso,
       history: [
         {
-          status: 'pendiente',
+          status: initialStatus,
           date: nowIso,
           note: sourceType === 'landing_page'
             ? `Orden creada vía Landing Page (/lp/${landingPageSlug || ''}) - Despachada a ${provider?.name || 'Sacha Pack'} Webhook (COD RD$ 350 flete)`
@@ -713,6 +723,7 @@ export class SanpiStoreManager {
     const transactionId = `tx_${Date.now()}`;
     const newTransaction: Transaction = {
       id: transactionId,
+      createdByUid: isGuestCheckout ? 'guest' : auth.currentUser!.uid,
       trackingNumber,
       storeId: article.storeId,
       articleId: article.id,
@@ -741,11 +752,15 @@ export class SanpiStoreManager {
 
     // Decrement product stock if positive
     const artIndex = this.articles.findIndex(a => a.id === article.id);
+    const stockBefore = artIndex !== -1 ? this.articles[artIndex].stock : 0;
     if (artIndex !== -1 && this.articles[artIndex].stock > 0) {
       this.articles[artIndex].stock = Math.max(0, this.articles[artIndex].stock - quantity);
     }
 
     // Increment landing page orders count if applicable
+    const landingPageBefore = landingPageSlug ? this.landingPages.find(page => page.slug === landingPageSlug) : undefined;
+    const landingOrdersBefore = landingPageBefore?.ordersCount;
+    const landingStockBefore = landingPageBefore?.stockCount;
     if (landingPageSlug) {
       const lp = this.landingPages.find(l => l.slug === landingPageSlug);
       if (lp) {
@@ -760,27 +775,63 @@ export class SanpiStoreManager {
     // Trigger TTS Voice Alert: "Sanpi"!
     speakSanpi();
 
-    // Dispatch to Logistics Webhook in background
-    let sachaRes: SachaPackWebhookResponse | undefined;
+    // Commit both records atomically before attempting any carrier dispatch.
     try {
-      sachaRes = await sendToLogisticsWebhook(sachaPayload, provider);
-      newDelivery.sachaPackResponse = sachaRes;
-      newDelivery.sachaPackStatus = sachaRes.success ? 'enviado' : 'error';
-      this.saveToLocalStorage();
-      this.notify();
-    } catch (e: any) {
-      console.warn('Logistics webhook dispatch notice:', e);
-    }
-
-    // Persist to Firestore
-    try {
-      await setDoc(doc(db, 'deliveries', deliveryId), newDelivery);
-      await setDoc(doc(db, 'transactions', transactionId), newTransaction);
-      if (artIndex !== -1) {
-        await updateDoc(doc(db, 'articles', article.id), { stock: this.articles[artIndex].stock });
+      if (isGuestCheckout) {
+        const guestResponse = await fetch('/api/checkout/guest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ delivery: newDelivery, transaction: newTransaction })
+        });
+        const guestResult = await guestResponse.json();
+        if (!guestResponse.ok || !guestResult.success) {
+          throw new Error(guestResult.message || 'No se pudo registrar el pedido.');
+        }
+        newDelivery.sachaPackResponse = guestResult.sachaPackResponse;
+        newDelivery.sachaPackStatus = guestResult.sachaPackResponse?.success ? 'enviado' : 'pendiente';
+        this.saveToLocalStorage();
+        this.notify();
+      } else {
+        const orderBatch = writeBatch(db);
+        orderBatch.set(doc(db, 'transactions', transactionId), newTransaction);
+        orderBatch.set(doc(db, 'deliveries', deliveryId), newDelivery);
+        await orderBatch.commit();
       }
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `deliveries/${deliveryId}`);
+      this.deliveries = this.deliveries.filter(delivery => delivery.id !== deliveryId);
+      this.transactions = this.transactions.filter(transaction => transaction.id !== transactionId);
+      if (artIndex !== -1) this.articles[artIndex].stock = stockBefore;
+      if (landingPageSlug) {
+        const lp = this.landingPages.find(page => page.slug === landingPageSlug);
+        if (lp) { lp.ordersCount = landingOrdersBefore || 0; lp.stockCount = landingStockBefore || 0; }
+      }
+      this.lastNewOrder = null;
+      this.saveToLocalStorage();
+      this.notify();
+      throw err;
+    }
+    if (artIndex !== -1 && !isGuestCheckout) {
+      try { await updateDoc(doc(db, 'articles', article.id), { stock: this.articles[artIndex].stock }); }
+      catch (err) { handleFirestoreError(err, OperationType.UPDATE, `articles/${article.id}`); }
+    }
+
+    let sachaRes: SachaPackWebhookResponse | undefined = isGuestCheckout ? newDelivery.sachaPackResponse : undefined;
+    if (isGuestCheckout) return { delivery: newDelivery, transaction: newTransaction, sachaPackResponse: sachaRes };
+    try {
+      sachaRes = await sendToLogisticsWebhook(sachaPayload, provider, deliveryId);
+      newDelivery.sachaPackResponse = sachaRes;
+      newDelivery.sachaPackStatus = sachaRes.success ? 'enviado' : 'error';
+      newDelivery.sachaPackDispatchedAt = new Date().toISOString();
+      this.saveToLocalStorage();
+      this.notify();
+      await updateDoc(doc(db, 'deliveries', deliveryId), {
+        sachaPackResponse: sachaRes,
+        sachaPackStatus: newDelivery.sachaPackStatus,
+        sachaPackDispatchedAt: newDelivery.sachaPackDispatchedAt
+      });
+    } catch (err) {
+      console.warn('Logistics webhook dispatch notice:', err);
     }
 
     return { delivery: newDelivery, transaction: newTransaction, sachaPackResponse: sachaRes };
@@ -791,10 +842,6 @@ export class SanpiStoreManager {
     const id = `prov_${Date.now()}`;
     const now = new Date().toISOString();
 
-    if (data.isDefault) {
-      this.logisticsProviders.forEach(p => { p.isDefault = false; });
-    }
-
     const newProvider: LogisticsProviderConfig = {
       ...data,
       id,
@@ -802,22 +849,23 @@ export class SanpiStoreManager {
       updatedAt: now
     };
 
+    await setDoc(doc(db, 'logistics_providers', id), newProvider);
+    if (data.isDefault) {
+      this.logisticsProviders.forEach(p => { p.isDefault = false; });
+    }
     this.logisticsProviders = [...this.logisticsProviders, newProvider];
     this.saveToLocalStorage();
     this.notify();
-
-    try {
-      await setDoc(doc(db, 'logistics_providers', id), newProvider);
-    } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `logistics_providers/${id}`);
-    }
 
     return newProvider;
   }
 
   public async updateLogisticsProvider(id: string, updates: Partial<LogisticsProviderConfig>): Promise<void> {
     const index = this.logisticsProviders.findIndex(p => p.id === id);
-    if (index === -1) return;
+    if (index === -1) throw new Error('La empresa de transporte ya no existe. Actualiza la página.');
+
+    const updatedAt = new Date().toISOString();
+    await setDoc(doc(db, 'logistics_providers', id), { ...updates, updatedAt }, { merge: true });
 
     if (updates.isDefault) {
       this.logisticsProviders.forEach(p => {
@@ -828,20 +876,12 @@ export class SanpiStoreManager {
     this.logisticsProviders[index] = {
       ...this.logisticsProviders[index],
       ...updates,
-      updatedAt: new Date().toISOString()
+      updatedAt
     };
 
     this.saveToLocalStorage();
     this.notify();
 
-    try {
-      await updateDoc(doc(db, 'logistics_providers', id), {
-        ...updates,
-        updatedAt: new Date().toISOString()
-      });
-    } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, `logistics_providers/${id}`);
-    }
   }
 
   public async deleteLogisticsProvider(id: string): Promise<void> {
@@ -947,12 +987,8 @@ export class SanpiStoreManager {
       return { success: false, message: 'Falta identificador de la orden en el webhook' };
     }
 
-    const delIndex = this.deliveries.findIndex(d => 
-      d.externalOrderId === queryTerm || 
-      d.trackingNumber === queryTerm ||
-      (d.sachaPackResponse?.sachaTrackingId && d.sachaPackResponse.sachaTrackingId === queryTerm) ||
-      d.id === queryTerm
-    );
+    const identifiers = [payload.externalOrderId, payload.trackingNumber, payload.carrierTrackingId].filter((value): value is string => Boolean(value?.trim()));
+    const delIndex = this.deliveries.findIndex(d => identifiers.some(value => matchesDeliveryGuide(d, value)));
 
     if (delIndex === -1) {
       return { success: false, message: `Orden ${queryTerm} no encontrada en Sanpi.` };
@@ -961,9 +997,14 @@ export class SanpiStoreManager {
     const del = this.deliveries[delIndex];
     const nowIso = new Date().toISOString();
     const oldStatus = del.status;
-    const newStatus = payload.status || del.status;
+    const newStatus = normalizeDeliveryStatus(payload.status || del.status);
+    const transitionError = validateDeliveryTransition(del, newStatus, { proofPhotoUrl: payload.podPhotoUrl, deliveryPersonId: del.deliveryPersonId || payload.courierId });
+    if (transitionError) return { success: false, message: transitionError };
 
     del.status = newStatus;
+    if (payload.podPhotoUrl) del.proofPhotoUrl = payload.podPhotoUrl;
+    if (payload.courierId) del.deliveryPersonId = payload.courierId;
+    if (payload.carrierTrackingId) del.carrierTrackingId = payload.carrierTrackingId.trim();
     if (payload.carrierTrackingId && !del.sachaPackResponse?.sachaTrackingId) {
       if (!del.sachaPackResponse) {
         del.sachaPackResponse = {
@@ -1007,7 +1048,10 @@ export class SanpiStoreManager {
     try {
       await updateDoc(doc(db, 'deliveries', del.id), {
         status: del.status,
+        proofPhotoUrl: del.proofPhotoUrl,
+        deliveryPersonId: del.deliveryPersonId,
         history: del.history,
+        carrierTrackingId: del.carrierTrackingId,
         sachaPackResponse: del.sachaPackResponse
       });
       const txIndex = this.transactions.findIndex(t => t.trackingNumber === del.trackingNumber);
@@ -1070,7 +1114,7 @@ export class SanpiStoreManager {
       : this.getLogisticsProviderForStore(del.storeId);
 
     let currentStoreId = overrideStoreId?.trim() || store?.sachaPackStoreId || provider?.defaultStoreId || DEFAULT_SACHA_PACK_STORE_ID;
-    if (!currentStoreId || currentStoreId.startsWith('TU_') || currentStoreId === 'TU_UID_DE_SOCIO') {
+    if (!currentStoreId || currentStoreId.startsWith('TU_') || currentStoreId === 'sxOzEivG9GP9SvaVuF1nVpQZCOu1') {
       currentStoreId = DEFAULT_SACHA_PACK_STORE_ID;
     }
     
@@ -1092,7 +1136,8 @@ export class SanpiStoreManager {
               {
                 barcode_imei: del.barcode_imei || art?.barcode_imei || '1234567890',
                 quantity: 1,
-                price: del.basePrice
+                price: del.basePrice,
+                name: del.articleName || art?.name || 'Artículo Sanpi'
               }
             ],
         customer: del.sachaPackPayload?.customer || {
@@ -1107,10 +1152,11 @@ export class SanpiStoreManager {
       });
     }
 
-    const res = await sendToLogisticsWebhook(payload, provider);
+    const res = await sendToLogisticsWebhook(payload, provider, deliveryId);
     
     del.sachaPackPayload = payload;
     del.sachaPackResponse = res;
+    if (res.success) del.carrierTrackingId = carrierGuideFor(del);
     del.sachaPackStatus = res.success ? 'enviado' : 'error';
     del.sachaPackDispatchedAt = new Date().toISOString();
     del.logisticsProviderId = provider?.id;
@@ -1131,6 +1177,7 @@ export class SanpiStoreManager {
       await updateDoc(doc(db, 'deliveries', deliveryId), {
         sachaPackPayload: del.sachaPackPayload,
         sachaPackResponse: del.sachaPackResponse,
+        carrierTrackingId: del.carrierTrackingId,
         sachaPackStatus: del.sachaPackStatus,
         sachaPackDispatchedAt: del.sachaPackDispatchedAt,
         logisticsProviderId: del.logisticsProviderId,
@@ -1202,6 +1249,8 @@ export class SanpiStoreManager {
   public async updateDeliveryStatus(deliveryId: string, newStatus: Delivery['status'], note: string = '') {
     const delIndex = this.deliveries.findIndex(d => d.id === deliveryId);
     if (delIndex === -1) return;
+    const transitionError = validateDeliveryTransition(this.deliveries[delIndex], newStatus);
+    if (transitionError) throw new Error(transitionError);
 
     const updated = { ...this.deliveries[delIndex] };
     updated.status = newStatus;
@@ -1237,11 +1286,41 @@ export class SanpiStoreManager {
     }
   }
 
-  /**
-   * Universal Package & GPS Tracking Method
-   * Queries Firestore document `deliveries/{orderId}`, or searches deliveries collection / cache
-   * and queries `users/{deliveryPersonId}` if in transit for live GPS coordinates.
-   */
+  /** Records an already completed settlement without moving money. Firestore rules restrict this to admins. */
+  public async recordSettlement(deliveryId: string, kind: 'store' | 'driver', paidBy: string, paidAmount: number, reference: string) {
+    const delivery = this.deliveries.find(item => item.id === deliveryId);
+    const actor = auth.currentUser;
+    if (!delivery || !actor || actor.isAnonymous || actor.uid !== paidBy) throw new Error('Sesión no válida.');
+    if (!reference.trim() || !Number.isFinite(paidAmount) || paidAmount <= 0) throw new Error('Monto o referencia inválidos.');
+    if (normalizeDeliveryStatus(delivery.status) !== 'entregado') throw new Error('Solo se liquidan entregas completadas.');
+    const linked = kind === 'store' ? this.transactions.find(item => item.trackingNumber === delivery.trackingNumber) : undefined;
+    const paidAt = new Date().toISOString();
+    const fields = kind === 'store'
+      ? { storePaidAt: paidAt, storePaidBy: paidBy, storePaidAmount: paidAmount, storePaymentReference: reference.trim() }
+      : { driverPaidAt: paidAt, driverPaidBy: paidBy, driverPaidAmount: paidAmount, driverPaymentReference: reference.trim() };
+
+    await runTransaction(db, async transaction => {
+      const deliveryRef = doc(db, 'deliveries', delivery.id);
+      const deliverySnapshot = await transaction.get(deliveryRef);
+      if (!deliverySnapshot.exists()) throw new Error('La guía ya no existe en Firestore.');
+      const live = deliverySnapshot.data() as Delivery;
+      if (normalizeDeliveryStatus(live.status) !== 'entregado') throw new Error('La entrega ya no está completada.');
+      if (kind === 'store' ? live.storePaidAt : live.driverPaidAt) throw new Error('Este pago ya fue registrado.');
+      const txRef = linked ? doc(db, 'transactions', linked.id) : null;
+      const txSnapshot = txRef ? await transaction.get(txRef) : null;
+      transaction.update(deliveryRef, fields);
+      if (kind === 'store' && txRef && txSnapshot?.exists()) transaction.update(txRef, {
+        storePaidAt: paidAt, storePaidAmount: paidAmount, storePaymentReference: reference.trim()
+      });
+    });
+
+    Object.assign(delivery, fields);
+    if (kind === 'store' && linked) Object.assign(linked, { storePaidAt: paidAt, storePaidAmount: paidAmount, storePaymentReference: reference.trim() });
+    this.saveToLocalStorage();
+    this.notify();
+  }
+
+  /** Find a delivery by Sanpi, order, or carrier guide and return current status. */
   public async trackPackage(orderId: string): Promise<{ delivery: Delivery; courier?: UserLocationProfile | null }> {
     const cleanId = orderId.trim();
     if (!cleanId) throw new Error("Guía de envío no válida");
@@ -1253,21 +1332,41 @@ export class SanpiStoreManager {
       const docRef = doc(db, "deliveries", cleanId);
       const docSnap = await getDoc(docRef);
       if (docSnap.exists()) {
-        deliveryData = docSnap.data() as Delivery;
+        deliveryData = { ...(docSnap.data() as Delivery), status: normalizeDeliveryStatus(docSnap.data().status) };
       }
     } catch (e) {
       console.debug("Firestore direct deliveries lookup notice:", e);
     }
 
-    // 2. If not found by doc ID, search locally or in memory
+    // 2. Search known guides, including the transport company's guide.
     if (!deliveryData) {
-      const foundLocal = this.deliveries.find(d =>
-        d.id.toLowerCase() === cleanId.toLowerCase() ||
-        d.trackingNumber.toLowerCase() === cleanId.toLowerCase() ||
-        d.externalOrderId?.toLowerCase() === cleanId.toLowerCase()
-      );
+      const foundLocal = this.deliveries.find(d => matchesDeliveryGuide(d, cleanId));
       if (foundLocal) {
-        deliveryData = { ...foundLocal };
+        try {
+          const fresh = await getDoc(doc(db, 'deliveries', foundLocal.id));
+          deliveryData = fresh.exists() ? { ...(fresh.data() as Delivery), status: normalizeDeliveryStatus(fresh.data().status) } : { ...foundLocal };
+        } catch {
+          deliveryData = { ...foundLocal };
+        }
+      }
+    }
+
+    // The local cache may not contain another store's order. Exact Firestore
+    // queries keep carrier guides searchable across browsers and devices.
+    if (!deliveryData) {
+      await auth.authStateReady();
+      const fields = ['trackingNumber', 'externalOrderId', 'carrierTrackingId', 'sachaPackResponse.trackingNumber', 'sachaPackResponse.sachaTrackingId'];
+      for (const field of fields) {
+        try {
+          const result = await getDocs(query(collection(db, 'deliveries'), where(field, '==', cleanId), limit(1)));
+          if (!result.empty) {
+            const found = result.docs[0].data() as Delivery;
+            deliveryData = { ...found, status: normalizeDeliveryStatus(found.status) };
+            break;
+          }
+        } catch (error) {
+          console.debug('Consulta de guía:', error);
+        }
       }
     }
 
@@ -1275,31 +1374,29 @@ export class SanpiStoreManager {
       throw new Error(`Guía "${cleanId}" no encontrada en el sistema de rastreo.`);
     }
 
+    // Reconcile against Sacha's tracking record when a carrier callback was missed.
+    if (deliveryData.logisticsProviderId === 'prov_sacha_pack' &&
+        !['entregado', 'retornado a almacén', 'cancelado'].includes(deliveryData.status)) {
+      try {
+        const response = await fetch('/api/sacha/sync-status', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ trackingNumber: deliveryData.trackingNumber })
+        });
+        if (response.ok) {
+          const fresh = await getDoc(doc(db, 'deliveries', deliveryData.trackingNumber));
+          if (fresh.exists()) deliveryData = { ...(fresh.data() as Delivery), status: normalizeDeliveryStatus(fresh.data().status) };
+        }
+      } catch (error) {
+        console.debug('Sacha no respondió al rastreo:', error);
+      }
+    }
+
     // Ensure totalToCollect is populated
     if (deliveryData.totalToCollect === undefined && deliveryData.totalCodAmount) {
       deliveryData.totalToCollect = deliveryData.totalCodAmount;
     }
 
-    // 3. If in transit and deliveryPersonId is present, query courier profile for live GPS
-    let courierProfile: UserLocationProfile | null = null;
-    const isEnTransito = deliveryData.status === 'en_transito' || (deliveryData.status as any) === 'en tránsito';
-
-    if (isEnTransito && deliveryData.deliveryPersonId) {
-      try {
-        const userRef = doc(db, "users", deliveryData.deliveryPersonId);
-        const userSnap = await getDoc(userRef);
-        if (userSnap.exists()) {
-          courierProfile = userSnap.data() as UserLocationProfile;
-          if (courierProfile?.lastLocation) {
-            deliveryData.lastLocation = courierProfile.lastLocation;
-          }
-        }
-      } catch (err) {
-        console.debug("Courier profile lookup:", err);
-      }
-    }
-
-    return { delivery: deliveryData, courier: courierProfile };
+    return { delivery: deliveryData };
   }
 
   // 4. Partner Subscription Approval / Rejection
@@ -1427,25 +1524,24 @@ export class SanpiStoreManager {
 
   // 5. Add Partner Subscription Request
   public async addSubscriptionRequest(data: Omit<MarketplaceSubscription, 'id' | 'requestedAt' | 'status' | 'monthlyFee'>) {
-    const feeMap = { basic: 1500, pro: 3000, elite: 5000 };
-    const id = `sub_${Date.now()}`;
+    const id = `sub_${crypto.randomUUID()}`;
     const newSub: MarketplaceSubscription = {
       ...data,
       id,
-      monthlyFee: feeMap[data.plan] || 3000,
+      monthlyFee: this.getPlanFee(data.plan),
       status: 'pendiente',
       requestedAt: new Date().toISOString()
     };
-
-    this.subscriptions = [newSub, ...this.subscriptions];
-    this.saveToLocalStorage();
-    this.notify();
 
     try {
       await setDoc(doc(db, 'marketplace_subscriptions', id), newSub);
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `marketplace_subscriptions/${id}`);
+      throw err;
     }
+    this.subscriptions = [newSub, ...this.subscriptions];
+    this.saveToLocalStorage();
+    this.notify();
   }
 
   // 6. Register Expense
@@ -1490,6 +1586,10 @@ export class SanpiStoreManager {
       await setDoc(doc(db, 'expenses', id), newExp);
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `expenses/${id}`);
+      this.expenses = this.expenses.filter(expense => expense.id !== id);
+      this.saveToLocalStorage();
+      this.notify();
+      throw err;
     }
     return newExp;
   }
@@ -1707,6 +1807,10 @@ export class SanpiStoreManager {
     deliveryId: string,
     info: {
       status?: DeliveryStatus;
+      deliveryPersonId?: string;
+      proofPhotoUrl?: string;
+      deliveryPayment?: number;
+      isPaidToOffice?: boolean;
       driverName?: string;
       driverPhone?: string;
       carrierNotes?: string;
@@ -1720,6 +1824,8 @@ export class SanpiStoreManager {
     const delivery = this.deliveries[idx];
     const nowIso = new Date().toISOString();
     const newStatus = info.status || delivery.status;
+    const transitionError = validateDeliveryTransition(delivery, newStatus, info);
+    if (transitionError) throw new Error(transitionError);
 
     const newHistoryEntry = {
       status: newStatus,
@@ -1727,7 +1833,7 @@ export class SanpiStoreManager {
       note: info.carrierNotes || `Actualización por Transportista (${info.carrierName || delivery.carrierName || 'Courier'}) - Conductor: ${info.driverName || delivery.driverName || 'No asignado'}`
     };
 
-    this.deliveries[idx] = {
+    const updatedDelivery: Delivery = {
       ...delivery,
       ...info,
       status: newStatus,
@@ -1735,27 +1841,56 @@ export class SanpiStoreManager {
       history: [...(delivery.history || []), newHistoryEntry]
     };
 
-    // If marked entregado, update transaction status too
-    if (newStatus === 'entregado') {
-      const txIdx = this.transactions.findIndex(t => t.trackingNumber === delivery.trackingNumber);
-      if (txIdx !== -1) {
-        this.transactions[txIdx].status = 'entregado';
-      }
-    }
-
-    this.saveToLocalStorage();
-    this.notify();
-
+    const txIdx = this.transactions.findIndex(t => t.trackingNumber === delivery.trackingNumber);
     try {
-      await updateDoc(doc(db, 'deliveries', delivery.id), {
+      const batch = writeBatch(db);
+      batch.update(doc(db, 'deliveries', delivery.id), {
         ...info,
         status: newStatus,
-        collectedAt: this.deliveries[idx].collectedAt,
-        history: this.deliveries[idx].history
+        collectedAt: updatedDelivery.collectedAt,
+        history: updatedDelivery.history
       });
+      if (txIdx !== -1 && (newStatus === 'entregado' || newStatus === 'cancelado')) {
+        batch.update(doc(db, 'transactions', this.transactions[txIdx].id), { status: newStatus });
+      }
+      await batch.commit();
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `deliveries/${delivery.id}`);
+      throw new Error('No se pudo guardar la actualización en Firestore. Comprueba tu conexión y permisos.');
     }
+    this.deliveries[idx] = updatedDelivery;
+    if (txIdx !== -1 && (newStatus === 'entregado' || newStatus === 'cancelado')) this.transactions[txIdx].status = newStatus;
+    this.saveToLocalStorage();
+    this.notify();
+  }
+
+  public async restockCancelledDelivery(deliveryId: string): Promise<boolean> {
+    const deliveryRef = doc(db, 'deliveries', deliveryId);
+    const result = await runTransaction(db, async transaction => {
+      const deliverySnapshot = await transaction.get(deliveryRef);
+      if (!deliverySnapshot.exists()) throw new Error('La orden no existe en Firestore.');
+      const delivery = deliverySnapshot.data() as Delivery;
+      if (delivery.status !== 'cancelado') throw new Error('Solo se puede reponer una orden cancelada.');
+      if (delivery.inventoryRestockedAt) return null;
+      if (!delivery.articleId) throw new Error('La orden no tiene un artículo asociado.');
+      const articleRef = doc(db, 'articles', delivery.articleId);
+      const articleSnapshot = await transaction.get(articleRef);
+      if (!articleSnapshot.exists()) throw new Error('El artículo ya no existe en inventario.');
+      const quantity = Math.max(1, Number(delivery.quantity) || 1);
+      const stock = Math.max(0, Number(articleSnapshot.data().stock) || 0) + quantity;
+      const restoredAt = new Date().toISOString();
+      transaction.update(articleRef, { stock });
+      transaction.update(deliveryRef, { inventoryRestockedAt: restoredAt });
+      return { articleId: delivery.articleId, stock, restoredAt };
+    });
+    if (!result) return false;
+    const article = this.articles.find(item => item.id === result.articleId);
+    if (article) article.stock = result.stock;
+    const delivery = this.deliveries.find(item => item.id === deliveryId);
+    if (delivery) delivery.inventoryRestockedAt = result.restoredAt;
+    this.saveToLocalStorage();
+    this.notify();
+    return true;
   }
 
   // 9. Update Store
@@ -1890,7 +2025,7 @@ export class SanpiStoreManager {
         existing.totalProfitGenerated += profit;
         if (d.status === 'entregado') {
           existing.paidProfit += profit;
-        } else if (d.status === 'pendiente' || d.status === 'en_transito') {
+        } else if (d.status === 'pendiente' || d.status === 'en tránsito') {
           existing.pendingProfit += profit;
         }
 

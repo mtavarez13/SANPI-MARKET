@@ -157,9 +157,9 @@ export function exportCarrierOrdersToPdf(
   // 2. Metrics Summary
   const totalPackages = deliveries.length;
   const deliveredCount = deliveries.filter(d => d.status === 'entregado').length;
-  const inTransitCount = deliveries.filter(d => d.status === 'en_transito').length;
+  const inTransitCount = deliveries.filter(d => d.status === 'en tránsito').length;
   const pendingCount = deliveries.filter(d => d.status === 'pendiente').length;
-  const failedCount = deliveries.filter(d => d.status === 'intento_fallido' || d.status === 'cancelado').length;
+  const failedCount = deliveries.filter(d => d.status === 'pendiente de retorno' || d.status === 'cancelado').length;
 
   const totalCodToCollect = deliveries.reduce((acc, d) => acc + (d.totalCodAmount || ((d.basePrice || 0) + (d.shippingFee || 350))), 0);
   const totalCodCollected = deliveries
@@ -279,9 +279,9 @@ export function exportCarrierOrdersToPdf(
     doc.text(addrTxt, 98, currentY + 5);
 
     // Status
-    const st = del.status === 'entregado' ? 'ENTREGADO' : del.status === 'en_transito' ? 'EN CAMINO' : (del.status || 'PENDIENTE').toUpperCase();
+    const st = del.status === 'entregado' ? 'ENTREGADO' : del.status === 'en tránsito' ? 'EN CAMINO' : (del.status || 'PENDIENTE').toUpperCase();
     if (del.status === 'entregado') doc.setTextColor(emerald[0], emerald[1], emerald[2]);
-    else if (del.status === 'en_transito') doc.setTextColor(vibrantBlue[0], vibrantBlue[1], vibrantBlue[2]);
+    else if (del.status === 'en tránsito') doc.setTextColor(vibrantBlue[0], vibrantBlue[1], vibrantBlue[2]);
     else doc.setTextColor(100, 116, 139);
     doc.setFont('helvetica', 'bold');
     doc.text(st, 148, currentY + 5);

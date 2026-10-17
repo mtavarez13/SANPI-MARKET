@@ -4,9 +4,6 @@ import {
   ShieldCheck,
   Truck,
   CheckCircle2,
-  Clock,
-  Flame,
-  Star,
   MapPin,
   Phone,
   User,
@@ -49,8 +46,6 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
     sanpiManager.getLandingPageBySlug(slug)
   );
   const [selectedImage, setSelectedImage] = useState<string>('');
-  const [timeLeft, setTimeLeft] = useState({ minutes: 34, seconds: 18 });
-  const [recentBuyerCity, setRecentBuyerCity] = useState('Santo Domingo');
 
   // Checkout Form State
   const [quantity, setQuantity] = useState(1);
@@ -92,33 +87,6 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
       sanpiManager.incrementLandingPageViews(slug);
     }
   }, [slug]);
-
-  // Urgency Timer Countdown
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setTimeLeft(prev => {
-        if (prev.seconds > 0) {
-          return { ...prev, seconds: prev.seconds - 1 };
-        } else if (prev.minutes > 0) {
-          return { minutes: prev.minutes - 1, seconds: 59 };
-        } else {
-          return { minutes: 45, seconds: 0 };
-        }
-      });
-    }, 1000);
-
-    // Dynamic Social Proof Toast Rotation
-    const cities = ['Santo Domingo Este', 'Santiago', 'La Vega', 'Punta Cana', 'Puerto Plata', 'San Cristóbal', 'Distrito Nacional'];
-    const socialInterval = setInterval(() => {
-      const randomCity = cities[Math.floor(Math.random() * cities.length)];
-      setRecentBuyerCity(randomCity);
-    }, 8000);
-
-    return () => {
-      clearInterval(timer);
-      clearInterval(socialInterval);
-    };
-  }, []);
 
   if (!landingPage) {
     return (
@@ -183,6 +151,10 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
 
   const handleOrderSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!product || product.status !== 'aprobado' || product.stock < quantity) {
+      alert('Este artículo ya no está disponible en la cantidad solicitada.');
+      return;
+    }
     if (!customerName || !customerPhone || !province || !city || !address) {
       alert('Por favor completa todos los campos requeridos para coordinar la entrega con Sacha Pack.');
       return;
@@ -196,34 +168,7 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
 
     setLoading(true);
     try {
-      const artToOrder: Article = product || {
-        id: landingPage.productId,
-        storeId: landingPage.originalStoreId,
-        storeName: landingPage.ownerName,
-        name: landingPage.productName,
-        title: landingPage.productName,
-        slug: landingPage.slug,
-        description: landingPage.heroSubheadline,
-        category: 'Dropshipping',
-        price: landingPage.customSellingPrice,
-        wholesalePrice: landingPage.wholesalePrice,
-        compareAtPrice: Math.round(landingPage.customSellingPrice * 1.3),
-        image: landingPage.productImage,
-        images: landingPage.galleryImages || [landingPage.productImage],
-        gallery: landingPage.galleryImages || [landingPage.productImage],
-        status: 'aprobado',
-        isPublic: true,
-        isDropshipping: true,
-        views: landingPage.views,
-        rating: 4.9,
-        stock: landingPage.stockCount || 10,
-        inventory: landingPage.stockCount || 10,
-        variants: [],
-        specifications: {},
-        reviews: [],
-        reviewCount: 1,
-        createdAt: new Date().toISOString()
-      };
+      const artToOrder: Article = product;
 
       const res = await sanpiManager.createCodOrder({
         article: artToOrder,
@@ -263,24 +208,17 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
   return (
     <div className="min-h-screen bg-white text-slate-900 pb-20">
       
-      {/* 1. Top Urgency Sticky Bar with Purple Brand Gradient */}
+      {/* Product availability and sharing */}
       <div className="sticky top-0 z-30 bg-purple-700 py-2.5 px-4 text-white text-xs font-semibold shadow-md">
         <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <Flame className="w-4 h-4 text-amber-300 animate-bounce shrink-0" />
+            <ShoppingBag className="w-4 h-4 text-amber-300 shrink-0" />
             <span className="text-xs">
-              ¡OFERTA FLASH EN RD! Quedan solo <strong className="text-amber-200 underline font-bold">{landingPage.stockCount || 12} unidades</strong> en inventario.
+              {product && product.stock > 0 ? <>Disponible en Sanpi Market: <strong className="text-amber-200 font-bold">{product.stock} unidades</strong></> : 'Artículo temporalmente no disponible'}
             </span>
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5 bg-purple-900/60 px-3 py-1 rounded-full border border-purple-400/30 font-mono text-[12px] font-bold">
-              <Clock className="w-3.5 h-3.5 text-amber-300" />
-              <span>
-                Termina en {String(timeLeft.minutes).padStart(2, '0')}:{String(timeLeft.seconds).padStart(2, '0')}
-              </span>
-            </div>
-            
             <button
               onClick={handleShare}
               className="bg-white/20 hover:bg-white/30 text-white px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 transition-all cursor-pointer"
@@ -337,26 +275,6 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
                 </div>
               )}
 
-              {/* Bottom Real-time Social Proof Banner */}
-              <div className="absolute bottom-4 left-4 right-4 bg-white/95 backdrop-blur-xs rounded-2xl p-3 border border-purple-100 shadow-md flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
-                    ✓
-                  </div>
-                  <div>
-                    <p className="font-bold text-slate-900 text-xs">
-                      Un cliente en <span className="text-purple-700 font-extrabold">{recentBuyerCity}</span> acaba de ordenar
-                    </p>
-                    <p className="text-[10px] text-slate-500">Despacho oficial vía Sacha Pack Logistics RD</p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-0.5 text-amber-500">
-                  {[...Array(5)].map((_, i) => (
-                    <Star key={i} className="w-3.5 h-3.5 fill-current" />
-                  ))}
-                </div>
-              </div>
             </div>
 
             {/* Gallery Thumbnails */}
@@ -397,50 +315,6 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
                 ))}
               </div>
             </div>
-
-            {/* Dominican Testimonials */}
-            {landingPage.testimonials && landingPage.testimonials.length > 0 && (
-              <div className="bg-white border-2 border-purple-100 rounded-3xl p-6 space-y-4 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-slate-900 font-bold text-sm">
-                    <CheckCircle2 className="w-4 h-4 text-purple-600" />
-                    <span>Opiniones Reales de Clientes en República Dominicana</span>
-                  </div>
-                  <span className="text-xs text-purple-700 font-bold">4.9 / 5.0 (Ventas Verificadas)</span>
-                </div>
-
-                <div className="grid grid-cols-1 gap-3 pt-1">
-                  {landingPage.testimonials.map((test) => (
-                    <div key={test.id} className="bg-slate-50 p-4 rounded-2xl border border-slate-200 flex gap-3.5 items-start">
-                      <img
-                        src={test.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80'}
-                        alt={test.name}
-                        className="w-10 h-10 rounded-full object-cover border border-purple-200 shrink-0"
-                      />
-                      <div className="space-y-1 flex-1">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-xs text-slate-900">{test.name}</span>
-                            <span className="text-[10px] bg-purple-50 text-purple-800 border border-purple-200 px-2 py-0.5 rounded-full font-semibold">
-                              Comprador Verificado
-                            </span>
-                          </div>
-                          <div className="flex text-amber-500">
-                            {[...Array(test.rating)].map((_, i) => (
-                              <Star key={i} className="w-3 h-3 fill-current" />
-                            ))}
-                          </div>
-                        </div>
-                        <p className="text-xs text-slate-700 leading-relaxed italic">"{test.comment}"</p>
-                        <p className="text-[10px] text-slate-500 font-medium flex items-center gap-1">
-                          <MapPin className="w-3 h-3 text-purple-600" /> {test.city}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
 
             {/* Official Sacha Pack Endorsement on Landing Page */}
             <div className="p-4 rounded-2xl bg-purple-50 border border-purple-200 flex items-center justify-between text-xs">
@@ -541,7 +415,7 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
                       <span className="font-extrabold text-slate-900 text-sm">{quantity}</span>
                       <button
                         type="button"
-                        onClick={() => setQuantity(quantity + 1)}
+                        onClick={() => setQuantity(Math.min(product?.stock || 1, quantity + 1))}
                         className="text-slate-600 hover:text-purple-700 font-bold text-sm px-1 cursor-pointer"
                       >
                         +
@@ -824,7 +698,7 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
                   {/* Action Button */}
                   <button
                     type="submit"
-                    disabled={loading}
+                    disabled={loading || !product || product.stock < quantity || product.status !== 'aprobado'}
                     className="w-full py-4 bg-purple-700 hover:bg-purple-800 text-white rounded-2xl font-extrabold text-sm tracking-wide shadow-md flex items-center justify-center gap-2 transform active:scale-98 transition-all disabled:opacity-50 cursor-pointer"
                   >
                     <Truck className="w-5 h-5" />

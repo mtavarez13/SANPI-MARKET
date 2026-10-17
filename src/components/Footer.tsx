@@ -6,20 +6,19 @@ interface FooterProps {
   onNav: (view: 'explore' | 'catalogs' | 'dropship' | 'track' | 'partner' | 'admin') => void;
   onOpenAuth: () => void;
   config?: SiteThemeConfig;
+  showBusinessLinks?: boolean;
 }
 
-export const Footer: React.FC<FooterProps> = ({ onNav, onOpenAuth, config }) => {
+export const Footer: React.FC<FooterProps> = ({ onNav, onOpenAuth, config, showBusinessLinks = true }) => {
   const siteName = config?.siteName || 'SANPI';
   const siteTagline = config?.siteTagline || 'MARKET';
   const siteSlogan = config?.siteSlogan || 'La Magia de comprar Online';
-  const supportPhone = config?.supportWhatsApp || '18096766690';
-  const displayPhone = supportPhone.replace(/^1/, '').replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3') || '809-676-6690';
 
   return (
     <footer className="border-t border-slate-200 bg-slate-50 text-slate-600 text-xs mt-16">
       <div className="max-w-[1600px] xl:max-w-[1720px] 2xl:max-w-[1850px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-10 py-12 space-y-10">
         
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8">
+        <div className={`grid grid-cols-1 md:grid-cols-2 ${showBusinessLinks ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-8`}>
           
           {/* Col 1 & 2: Brand Info */}
           <div className="lg:col-span-2 space-y-4">
@@ -55,17 +54,6 @@ export const Footer: React.FC<FooterProps> = ({ onNav, onOpenAuth, config }) => 
               "{siteSlogan}". El ecosistema moderno de comercio electrónico y dropshipping con cobro contra entrega (COD) en República Dominicana.
             </p>
 
-            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-800">
-              <a
-                href={`https://wa.me/${supportPhone}?text=Hola%20${encodeURIComponent(siteName)},%20necesito%20soporte`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 px-3 py-1.5 rounded-xl border border-emerald-200 font-semibold transition-all shadow-2xs"
-              >
-                <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
-                <span>WhatsApp Soporte: <strong>{displayPhone}</strong></span>
-              </a>
-            </div>
           </div>
 
           {/* Col 3: Navegación */}
@@ -82,11 +70,11 @@ export const Footer: React.FC<FooterProps> = ({ onNav, onOpenAuth, config }) => 
                   Tiendas Verificadas
                 </button>
               </li>
-              <li>
+              {showBusinessLinks && <li>
                 <a href="#como-funciona" className="hover:text-slate-900 transition-colors">
                   ¿Cómo Funciona?
                 </a>
-              </li>
+              </li>}
               <li>
                 <button onClick={() => onNav('track')} className="hover:text-slate-900 transition-colors cursor-pointer">
                   Rastrear Guía de Envío
@@ -96,7 +84,7 @@ export const Footer: React.FC<FooterProps> = ({ onNav, onOpenAuth, config }) => 
           </div>
 
           {/* Col 4: Negocios & Dropshipping */}
-          <div className="space-y-3">
+          {showBusinessLinks && <div className="space-y-3">
             <h4 className="font-bold text-slate-900 uppercase text-[11px] tracking-wider">Negocios</h4>
             <ul className="space-y-2 text-xs">
               <li>
@@ -106,7 +94,7 @@ export const Footer: React.FC<FooterProps> = ({ onNav, onOpenAuth, config }) => 
               </li>
               <li>
                 <button onClick={() => onNav('dropship')} className="hover:text-slate-900 transition-colors cursor-pointer">
-                  Hub de Dropshipping
+                  Pimdrop
                 </button>
               </li>
               <li>
@@ -120,7 +108,7 @@ export const Footer: React.FC<FooterProps> = ({ onNav, onOpenAuth, config }) => 
                 </button>
               </li>
             </ul>
-          </div>
+          </div>}
 
           {/* Col 5: Contacto & Cobertura */}
           <div className="space-y-3">

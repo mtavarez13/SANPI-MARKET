@@ -60,7 +60,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   return (
     <div
       onClick={() => onSelect(article)}
-      className="group relative bg-white rounded-2xl border border-slate-200/90 hover:border-slate-300 transition-all duration-200 flex flex-col justify-between overflow-hidden shadow-xs hover:shadow-md cursor-pointer"
+      className="group relative bg-white rounded-2xl border border-slate-200/70 hover:border-violet-200 hover:-translate-y-1 transition-all duration-200 flex flex-col justify-between overflow-hidden shadow-xs hover:shadow-md cursor-pointer"
     >
       {/* 1. Image Area with Badges & Hover Effect */}
       <div
@@ -183,7 +183,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
               )}
             </button>
 
-            {article.isDropshipping && (
+            {article.isDropshipping && onResell && currentUser?.role !== 'customer' && (
               <button
                 onClick={handleResellClick}
                 title="Revender este producto y ganar comisión"

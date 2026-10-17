@@ -108,6 +108,7 @@ export const StoreSettingsModal: React.FC<StoreSettingsModalProps> = ({
   const [whatsapp, setWhatsapp] = useState(store?.contact?.whatsapp || store?.phone || currentUser?.phone || '8096766690');
   const [phone, setPhone] = useState(store?.contact?.phone || store?.phone || currentUser?.phone || '809-676-6690');
   const [province, setProvince] = useState(store?.province || currentUser?.province || 'Distrito Nacional');
+  const [fulfillmentMode, setFulfillmentMode] = useState<NonNullable<Store['fulfillmentMode']>>(store?.fulfillmentMode || 'fulfillment');
   const [primaryColor, setPrimaryColor] = useState(store?.theme?.primaryColor || '#9333ea');
   const [secondaryColor, setSecondaryColor] = useState(store?.theme?.secondaryColor || '#581c87');
 
@@ -222,6 +223,7 @@ export const StoreSettingsModal: React.FC<StoreSettingsModalProps> = ({
           bannerUrl,
           coverImageUrl: bannerUrl,
           province,
+          fulfillmentMode,
           contact: {
             phone: phone.trim(),
             whatsapp: whatsapp.replace(/[^0-9]/g, ''),
@@ -268,6 +270,7 @@ export const StoreSettingsModal: React.FC<StoreSettingsModalProps> = ({
           },
           phone: phone.trim(),
           province,
+          fulfillmentMode,
           rating: 5.0,
           totalReviews: 1,
           isMarketplace: true,
@@ -386,6 +389,14 @@ export const StoreSettingsModal: React.FC<StoreSettingsModalProps> = ({
               Tus clientes accederán directamente a tu tienda con este enlace y podrán ver todos tus productos y comprar contra entrega.
             </p>
           </div>
+
+          <label className="block space-y-2 text-xs font-bold text-slate-200">Modalidad de entrega
+            <select value={fulfillmentMode} onChange={e => setFulfillmentMode(e.target.value as NonNullable<Store['fulfillmentMode']>)} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white">
+              <option value="fulfillment">Fulfillment · inventario en Sacha</option>
+              <option value="pickup">Pickup · recoger en tienda</option>
+              <option value="shop_point">Shop Point · recoger en sucursal</option>
+            </select>
+          </label>
 
           {/* 2. STORE NAME & LINK / SLUG CONFIGURATION */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

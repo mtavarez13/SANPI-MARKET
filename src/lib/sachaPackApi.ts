@@ -1,25 +1,25 @@
 import { SachaPackWebhookPayload, SachaPackWebhookResponse, LogisticsProviderConfig, Delivery, Article, Store, PaymentMethod, LogisticsConnectionTestResult } from '../types';
+import { auth } from './firebase';
 
 /**
  * Official Sacha Pack Logistics API Webhook Endpoint (Production)
  */
-export const SACHA_PACK_WEBHOOK_URL = 'https://studio-345939831630.us-central1.run.app/api/logistics-webhook';
+export const SACHA_PACK_WEBHOOK_URL = 'https://sacha--studio-9195671573-fb490.us-east4.hosted.app/api/logistics-webhook';
 export const SACHA_PACK_ALT_WEBHOOK_URL = 'https://www.sachapack.com/api/logistics-webhook';
 
 /**
  * Default Master Account Store Identifier for Sacha Pack Logistics Integration
  */
-export const DEFAULT_SACHA_PACK_STORE_ID = 'sxOzEivG9GP9SvaVuF1nVpQZCOu1';
+export const DEFAULT_SACHA_PACK_STORE_ID = 'ds_80NC3boX9Le29wnJe3zO9OJ0cFz1';
 
 /**
  * Default Sacha Pack API Key
  */
-export const DEFAULT_SACHA_PACK_API_KEY = 'sk_sacha_wcrvnhqagxd86pqpxs1jfikvjq8mqmxt';
+export const DEFAULT_SACHA_PACK_API_KEY = '';
 
 /**
  * Default Inbound Webhook Secret for Transport Companies
  */
-export const DEFAULT_SANPI_INBOUND_WEBHOOK_SECRET = 'whsec_sanpi_carrier_live_sync_2026';
 
 /**
  * Default JSON Template for Sacha Pack & Logistics Webhooks
@@ -27,6 +27,7 @@ export const DEFAULT_SANPI_INBOUND_WEBHOOK_SECRET = 'whsec_sanpi_carrier_live_sy
 export const DEFAULT_LOGISTICS_JSON_TEMPLATE = JSON.stringify(
   {
     storeId: '{{storeId}}',
+    externalOrderId: '{{externalOrderId}}',
     items: [
       {
         barcode_imei: '{{barcode_imei}}',
@@ -58,17 +59,16 @@ export const DEFAULT_LOGISTICS_PROVIDERS: LogisticsProviderConfig[] = [
     code: 'sacha_pack',
     logoUrl: 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=100&auto=format&fit=crop&q=80',
     websiteUrl: 'https://www.sachapack.com/',
-    webhookUrl: 'https://studio-345939831630.us-central1.run.app/api/logistics-webhook',
+    webhookUrl: SACHA_PACK_WEBHOOK_URL,
     httpMethod: 'POST',
     authType: 'bearer',
     headers: {
       'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      'Authorization': 'Bearer sk_sacha_wcrvnhqagxd86pqpxs1jfikvjq8mqmxt'
+      'Accept': 'application/json'
     },
-    defaultStoreId: 'sxOzEivG9GP9SvaVuF1nVpQZCOu1',
-    apiKey: 'sk_sacha_wcrvnhqagxd86pqpxs1jfikvjq8mqmxt',
-    authToken: 'sk_sacha_wcrvnhqagxd86pqpxs1jfikvjq8mqmxt',
+    defaultStoreId: DEFAULT_SACHA_PACK_STORE_ID,
+    apiKey: '',
+    authToken: '',
     isActive: true,
     isDefault: true,
     jsonTemplate: DEFAULT_LOGISTICS_JSON_TEMPLATE,
@@ -202,9 +202,8 @@ export function buildSachaPackPayload(options: {
   }
 
   const items = options.items.map(item => {
-    const code = (item.sku || item.barcode_imei || '744123456789').trim();
+    const code = (item.barcode_imei || item.sku || '').trim();
     return {
-      sku: code,
       barcode_imei: code,
       quantity: item.quantity > 0 ? item.quantity : 1,
       price: Number(item.price) || 0,
@@ -213,31 +212,17 @@ export function buildSachaPackPayload(options: {
   });
 
   // Clean phone to numeric / standard WhatsApp format (e.g. 8095551212)
-  let cleanPhone = options.customer.phone ? options.customer.phone.replace(/[^0-9]/g, '') : '8095551212';
-  if (!cleanPhone || cleanPhone.length < 7) {
-    cleanPhone = '8095551212';
-  }
-
-  // Payment method: "contra entrega" or "tarjeta"
-  let paymentMethod = options.paymentMethod || 'contra entrega';
-  if (paymentMethod === 'COD') {
-    paymentMethod = 'contra entrega';
-  }
+  const cleanPhone = options.customer.phone ? options.customer.phone.replace(/[^0-9]/g, '') : '';
 
   return {
     storeId: rawStoreId,
     externalOrderId: options.externalOrderId || `INV-${Date.now().toString().slice(-6)}`,
-    paymentMethod,
     items,
     customer: {
-      name: options.customer.name || 'Juan Perez',
+      name: options.customer.name,
       phone: cleanPhone,
-      address: options.customer.address || 'Calle Principal #5, Ens. Libertad',
-      province: options.customer.province || 'Santiago',
-      municipality: options.customer.municipality && options.customer.municipality.trim() !== ''
-        ? options.customer.municipality.trim()
-        : 'Santiago de los Caballeros',
-      email: options.customer.email
+      address: options.customer.address,
+      province: options.customer.province
     }
   };
 }
@@ -252,6 +237,7 @@ export function getSampleSachaPackPayload(storeId?: string): SachaPackWebhookPay
 
   return {
     storeId: resolvedStoreId,
+    externalOrderId: 'PEDIDO-10001',
     items: [
       {
         barcode_imei: 'SKU-001',
@@ -276,19 +262,21 @@ export function getSampleSachaPackPayload(storeId?: string): SachaPackWebhookPay
  */
 export async function sendToLogisticsWebhook(
   payload: any,
-  provider?: LogisticsProviderConfig | null
+  provider?: LogisticsProviderConfig | null,
+  deliveryId?: string
 ): Promise<SachaPackWebhookResponse> {
   const webhookUrl = provider?.webhookUrl || SACHA_PACK_WEBHOOK_URL;
+  const isSachaPack = provider?.code === 'sacha_pack' || provider?.id === 'prov_sacha_pack' || webhookUrl === SACHA_PACK_WEBHOOK_URL;
   const providerName = provider?.name || 'Sacha Pack Logistics';
   const httpMethod = provider?.httpMethod || 'POST';
-  const apiKey = provider?.apiKey || provider?.authToken || (provider?.id === 'prov_sacha_pack' ? DEFAULT_SACHA_PACK_API_KEY : '');
+  const apiKey = provider?.apiKey || provider?.authToken || '';
   const customHeaders: Record<string, string> = {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
     ...(provider?.headers || {})
   };
 
-  if (apiKey) {
+  if (apiKey && !isSachaPack) {
     customHeaders['Authorization'] = `Bearer ${apiKey.trim()}`;
     customHeaders['x-api-key'] = apiKey.trim();
   }
@@ -300,11 +288,13 @@ export async function sendToLogisticsWebhook(
   // 1. First attempt: Dispatch via full-stack Node.js server proxy (/api/logistics-dispatch)
   // This guarantees reliable server-to-server HTTP request without browser CORS restrictions
   try {
+    const idToken = await auth.currentUser?.getIdToken();
     const proxyResponse = await fetch('/api/logistics-dispatch', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'application/json'
+        'Accept': 'application/json',
+        ...(idToken ? { 'X-Sanpi-Id-Token': idToken } : {})
       },
       body: JSON.stringify({
         webhookUrl,
@@ -312,12 +302,15 @@ export async function sendToLogisticsWebhook(
         headers: customHeaders,
         apiKey,
         authToken: apiKey,
+        providerId: provider?.id,
+        providerCode: provider?.code,
+        deliveryId,
         payload
       })
     });
 
-    if (proxyResponse.ok) {
-      const proxyResult: SachaPackWebhookResponse = await proxyResponse.json();
+    const proxyResult: SachaPackWebhookResponse = await proxyResponse.json();
+    if (proxyResponse.ok || isSachaPack || provider?.id) {
       console.log(`✅ [Logistics API Proxy - ${providerName}] Respuesta Recibida:`, proxyResult);
       console.groupEnd();
       return {
@@ -328,6 +321,15 @@ export async function sendToLogisticsWebhook(
     }
   } catch (proxyError: any) {
     console.warn(`[Logistics API Proxy] Proxy local no disponible, intentando llamada directa:`, proxyError.message);
+    if (isSachaPack || provider?.id) return {
+      success: false,
+      status: 503,
+      message: `No se pudo conectar con el servidor de Sanpi: ${proxyError.message}`,
+      timestamp,
+      endpoint: webhookUrl,
+      providerId: provider?.id,
+      providerName
+    };
   }
 
   // 2. Second attempt: Direct client fetch

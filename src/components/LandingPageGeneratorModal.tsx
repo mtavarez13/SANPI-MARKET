@@ -57,12 +57,12 @@ export const LandingPageGeneratorModal: React.FC<LandingPageGeneratorModalProps>
   );
 
   const selectedArticle = articles.find(a => a.id === selectedArticleId) || articles[0];
-  const wholesaleCost = selectedArticle?.wholesalePrice || Math.round((selectedArticle?.price || 2000) * 0.65);
+  const wholesaleCost = selectedArticle?.wholesalePrice ?? selectedArticle?.costPerItem ?? selectedArticle?.baseCost ?? 0;
   const suggestedPrice = selectedArticle?.price || 2500;
 
   // Form Fields
   const [sellingPrice, setSellingPrice] = useState<number>(suggestedPrice);
-  const [comparePrice, setComparePrice] = useState<number>(Math.round(suggestedPrice * 1.4));
+  const [comparePrice, setComparePrice] = useState<number>(selectedArticle?.compareAtPrice || 0);
   const [headline, setHeadline] = useState<string>(
     selectedArticle ? `${selectedArticle.name} - Edición Exclusiva` : 'Oferta Especial'
   );
@@ -73,8 +73,6 @@ export const LandingPageGeneratorModal: React.FC<LandingPageGeneratorModalProps>
     selectedArticle ? selectedArticle.name.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 30) : 'oferta-especial'
   );
   const [whatsapp, setWhatsapp] = useState<string>('809-555-8822');
-  const [timerMinutes, setTimerMinutes] = useState<number>(45);
-  const [stock, setStock] = useState<number>(15);
 
   const [loading, setLoading] = useState(false);
 
@@ -83,9 +81,9 @@ export const LandingPageGeneratorModal: React.FC<LandingPageGeneratorModalProps>
     setSelectedArticleId(artId);
     const art = articles.find(a => a.id === artId);
     if (art) {
-      const wCost = art.wholesalePrice || Math.round(art.price * 0.65);
+      const wCost = art.wholesalePrice ?? art.costPerItem ?? art.baseCost ?? 0;
       setSellingPrice(art.price);
-      setComparePrice(Math.round(art.price * 1.4));
+      setComparePrice(art.compareAtPrice || 0);
       setHeadline(`${art.name} - Edición Exclusiva`);
       setSubheadline(art.description);
       setSlug(art.name.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 30));
@@ -118,14 +116,14 @@ export const LandingPageGeneratorModal: React.FC<LandingPageGeneratorModalProps>
         customSellingPrice: sellingPrice,
         profitMargin: netProfitPerSale,
         originalComparePrice: comparePrice,
-        urgencyTimerMinutes: timerMinutes,
-        stockCount: stock,
+        urgencyTimerMinutes: 0,
+        stockCount: selectedArticle.stock,
         whatsappNumber: whatsapp,
         features: [
           {
             icon: 'Sparkles',
-            title: 'Máxima Calidad Certificada',
-            desc: 'Materiales premium seleccionados e inspeccionados por Sanpi Marketplace.'
+            title: 'Detalles del producto',
+            desc: selectedArticle.description || 'Consulta las fotos, el precio y la disponibilidad antes de comprar.'
           },
           {
             icon: 'Truck',
@@ -138,17 +136,7 @@ export const LandingPageGeneratorModal: React.FC<LandingPageGeneratorModalProps>
             desc: 'Paga con total confianza en efectivo directamente al repartidor.'
           }
         ],
-        testimonials: [
-          {
-            id: `test_${Date.now()}_1`,
-            name: 'Carlos M. Santana',
-            city: 'Santo Domingo Norte',
-            comment: 'Excelente producto y atención rápida por WhatsApp. Llegó al día siguiente.',
-            rating: 5,
-            avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=80',
-            verified: true
-          }
-        ],
+        testimonials: [],
         active: true
       });
 

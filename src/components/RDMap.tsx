@@ -15,7 +15,7 @@ export const RDMap: React.FC<RDMapProps> = ({ deliveries }) => {
   const provinceStats = RD_PROVINCES.map((prov) => {
     const provDeliveries = deliveries.filter(d => d.province.toLowerCase() === prov.name.toLowerCase());
     const delivered = provDeliveries.filter(d => d.status === 'entregado');
-    const inTransit = provDeliveries.filter(d => d.status === 'en_transito');
+    const inTransit = provDeliveries.filter(d => d.status === 'en tránsito');
     const totalCodValue = provDeliveries.reduce((acc, d) => acc + d.totalCodAmount, 0);
 
     return {

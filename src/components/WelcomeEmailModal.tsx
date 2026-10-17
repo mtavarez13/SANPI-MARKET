@@ -362,7 +362,7 @@ export const WelcomeEmailModal: React.FC<WelcomeEmailModalProps> = ({
               {user.role === 'partner' 
                 ? 'Ir a mi Catálogo de Tienda' 
                 : user.role === 'dropshipper' 
-                ? 'Ir al Panel de Dropshipping' 
+                ? 'Ir a Pimdrop'
                 : 'Ir a Explorar Catálogo'}
             </span>
             <ArrowRight className="w-4 h-4" />

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Truck,
   Package,
@@ -33,10 +33,16 @@ import {
   CheckSquare,
   Sparkles,
   Globe,
-  Info
+  Info,
+  Settings,
+  Save,
+  X
 } from 'lucide-react';
-import { Delivery, DeliveryStatus, UserProfile, CarrierUser } from '../types';
+import { Delivery, DeliveryStatus, UserProfile, CarrierUser, LogisticsProviderConfig } from '../types';
 import { sanpiManager } from '../lib/storeManager';
+import { auth } from '../lib/firebase';
+import { isSuperAdmin } from '../lib/authService';
+import { DEFAULT_SACHA_PACK_STORE_ID, SACHA_PACK_WEBHOOK_URL, SACHA_PACK_ALT_WEBHOOK_URL } from '../lib/sachaPackApi';
 import { exportCarrierOrdersToExcel, exportCarrierOrdersToPdf } from '../lib/carrierReportsGenerator';
 import { RD_PROVINCES } from '../data/rdProvinces';
 
@@ -77,6 +83,10 @@ export const CarrierDashboard: React.FC<CarrierDashboardProps> = ({
 
   const [selectedCarrier, setSelectedCarrier] = useState<CarrierUser | null>(initialCarrier);
 
+  useEffect(() => {
+    if (!selectedCarrier && initialCarrier) setSelectedCarrier(initialCarrier);
+  }, [initialCarrier, selectedCarrier]);
+
   // Search & Filters
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('todos');
@@ -90,7 +100,11 @@ export const CarrierDashboard: React.FC<CarrierDashboardProps> = ({
   const [activeModalOrder, setActiveModalOrder] = useState<Delivery | null>(null);
   const [selectedDriverName, setSelectedDriverName] = useState('');
   const [selectedDriverPhone, setSelectedDriverPhone] = useState('');
-  const [newOrderStatus, setNewOrderStatus] = useState<DeliveryStatus>('en_transito');
+  const [selectedDriverId, setSelectedDriverId] = useState('');
+  const [proofPhotoUrl, setProofPhotoUrl] = useState('');
+  const [deliveryPayment, setDeliveryPayment] = useState(0);
+  const [isPaidToOffice, setIsPaidToOffice] = useState(false);
+  const [newOrderStatus, setNewOrderStatus] = useState<DeliveryStatus>('en tránsito');
   const [carrierNotesInput, setCarrierNotesInput] = useState('');
   const [isUpdatingOrder, setIsUpdatingOrder] = useState(false);
   const [notificationMsg, setNotificationMsg] = useState<string | null>(null);
@@ -102,15 +116,115 @@ export const CarrierDashboard: React.FC<CarrierDashboardProps> = ({
   const [apiResponse, setApiResponse] = useState<any | null>(null);
 
   // Carrier Notification (POST Webhook) State
-  const [carrierStoreId, setCarrierStoreId] = useState('sxOzEivG9GP9SvaVuF1nVpQZCOu1');
-  const [carrierApiKeyInput, setCarrierApiKeyInput] = useState(currentUser?.apiKey || 'sk_sacha_wcrvnhqagxd86pqpxs1jfikvjq8mqmxt');
+  const [carrierStoreId, setCarrierStoreId] = useState(DEFAULT_SACHA_PACK_STORE_ID);
+  const [carrierApiKeyInput, setCarrierApiKeyInput] = useState('');
   const [showNotifyKey, setShowNotifyKey] = useState(false);
-  const [carrierEndpointUrl, setCarrierEndpointUrl] = useState('https://studio-345939831630.us-central1.run.app/api/logistics-webhook');
-  const [selectedNotifyOrderId, setSelectedNotifyOrderId] = useState<string>('sample');
+  const [carrierEndpointUrl, setCarrierEndpointUrl] = useState(SACHA_PACK_WEBHOOK_URL);
+  const [selectedNotifyOrderId, setSelectedNotifyOrderId] = useState<string>('');
   const [codeTab, setCodeTab] = useState<'js' | 'curl' | 'python'>('js');
   const [notifyingCarrier, setNotifyingCarrier] = useState(false);
   const [carrierNotifyResult, setCarrierNotifyResult] = useState<any | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
+  const [isConfiguringNotify, setIsConfiguringNotify] = useState(false);
+  const [savingNotifyConfig, setSavingNotifyConfig] = useState(false);
+  const [notifyConfigMessage, setNotifyConfigMessage] = useState<string | null>(null);
+  const [providerRevision, setProviderRevision] = useState(0);
+  const canConfigureNotify = currentUser?.role === 'admin' || isSuperAdmin(currentUser?.email);
+  const selectedProvider = useMemo<LogisticsProviderConfig | undefined>(() => {
+    const code = selectedCarrier?.id.replace(/^carrier_/, '');
+    return sanpiManager.logisticsProviders.find(provider => provider.code === code || provider.id === `prov_${code}`);
+  }, [selectedCarrier?.id, providerRevision]);
+
+  useEffect(() => sanpiManager.subscribe(() => setProviderRevision(revision => revision + 1)), []);
+
+  useEffect(() => {
+    if (isConfiguringNotify) return;
+    setCarrierStoreId(selectedProvider?.defaultStoreId || DEFAULT_SACHA_PACK_STORE_ID);
+    setCarrierApiKeyInput(canConfigureNotify ? (selectedProvider?.apiKey || selectedProvider?.authToken || '') : '');
+    setCarrierEndpointUrl(selectedProvider?.webhookUrl || SACHA_PACK_WEBHOOK_URL);
+  }, [selectedProvider, selectedCarrier?.id, isConfiguringNotify, canConfigureNotify]);
+
+  useEffect(() => {
+    if (!canConfigureNotify || !selectedProvider || isConfiguringNotify) return;
+    let active = true;
+    (async () => {
+      try {
+        const token = await auth.currentUser?.getIdToken();
+        if (!token) return;
+        const response = await fetch(`/api/carrier/config?providerId=${encodeURIComponent(selectedProvider.id)}`, {
+          headers: { 'X-Sanpi-Id-Token': token }
+        });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (active && data.config) {
+          setCarrierStoreId(data.config.storeId);
+          setCarrierApiKeyInput(data.config.apiKey);
+          setCarrierEndpointUrl(data.config.endpointUrl);
+        }
+      } catch {}
+    })();
+    return () => { active = false; };
+  }, [selectedProvider?.id, selectedProvider?.updatedAt, canConfigureNotify, isConfiguringNotify]);
+
+  const handleSaveNotifyConfig = async () => {
+    if (!canConfigureNotify) return;
+    const storeId = carrierStoreId.trim();
+    const apiKey = carrierApiKeyInput.trim();
+    const endpoint = carrierEndpointUrl.trim();
+    if (!storeId) return setNotifyConfigMessage('Escribe un Store ID válido.');
+    let parsedUrl: URL;
+    try { parsedUrl = new URL(endpoint); } catch { return setNotifyConfigMessage('Escribe una URL de endpoint válida.'); }
+    if (parsedUrl.protocol !== 'https:' && !(parsedUrl.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(parsedUrl.hostname))) {
+      return setNotifyConfigMessage('El endpoint debe usar HTTPS.');
+    }
+    setSavingNotifyConfig(true);
+    setNotifyConfigMessage(null);
+    try {
+      const providerId = selectedProvider?.id || (selectedCarrier ? `prov_${selectedCarrier.id.replace(/^carrier_/, '')}` : '');
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) throw new Error('Inicia sesión de nuevo para guardar las credenciales.');
+      const response = await fetch('/api/carrier/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'X-Sanpi-Id-Token': token },
+        body: JSON.stringify({ providerId, storeId, apiKey, endpointUrl: endpoint })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.message || 'No se pudo guardar la configuración privada.');
+      if (selectedProvider) {
+        await sanpiManager.updateLogisticsProvider(selectedProvider.id, {
+          defaultStoreId: storeId,
+          apiKey: '',
+          authToken: '',
+          webhookUrl: endpoint,
+          authType: 'bearer',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }
+        });
+      } else if (selectedCarrier) {
+        await sanpiManager.addLogisticsProvider({
+          name: selectedCarrier.name,
+          code: selectedCarrier.id.replace(/^carrier_/, ''),
+          webhookUrl: endpoint,
+          httpMethod: 'POST',
+          defaultStoreId: storeId,
+          apiKey: '',
+          authToken: '',
+          authType: 'bearer',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          isActive: true,
+          isDefault: false,
+          jsonTemplate: '{}'
+        });
+      } else {
+        throw new Error('Selecciona un transportista antes de guardar.');
+      }
+      setIsConfiguringNotify(false);
+      setNotifyConfigMessage('Configuración guardada. Se usará en los próximos despachos.');
+    } catch (error: any) {
+      setNotifyConfigMessage(error?.message || 'No se pudo guardar la configuración.');
+    } finally {
+      setSavingNotifyConfig(false);
+    }
+  };
 
   // Deliveries list from store manager
   const allDeliveries = sanpiManager.deliveries;
@@ -161,9 +275,9 @@ export const CarrierDashboard: React.FC<CarrierDashboardProps> = ({
   const kpis = useMemo(() => {
     const total = filteredDeliveries.length;
     const delivered = filteredDeliveries.filter(d => d.status === 'entregado').length;
-    const inTransit = filteredDeliveries.filter(d => d.status === 'en_transito').length;
+    const inTransit = filteredDeliveries.filter(d => d.status === 'en tránsito').length;
     const pending = filteredDeliveries.filter(d => d.status === 'pendiente').length;
-    const failed = filteredDeliveries.filter(d => d.status === 'intento_fallido' || d.status === 'cancelado').length;
+    const failed = filteredDeliveries.filter(d => d.status === 'pendiente de retorno' || d.status === 'cancelado').length;
 
     const totalCodToCollect = filteredDeliveries.reduce((acc, d) => {
       return acc + (d.totalCodAmount || ((d.basePrice || 0) + (d.shippingFee || 350)));
@@ -197,7 +311,7 @@ export const CarrierDashboard: React.FC<CarrierDashboardProps> = ({
 
   // Copy Webhook URL
   const handleCopyWebhook = () => {
-    const url = `${window.location.origin}/api/logistics/webhook-receiver?apiKey=${selectedCarrier?.apiKey || 'sanpi_key'}`;
+    const url = `${window.location.origin}/api/logistics/webhook-receiver`;
     navigator.clipboard.writeText(url);
     setCopiedWebhook(true);
     setTimeout(() => setCopiedWebhook(false), 2500);
@@ -208,7 +322,11 @@ export const CarrierDashboard: React.FC<CarrierDashboardProps> = ({
     setActiveModalOrder(del);
     setSelectedDriverName(del.driverName || del.deliveryPersonName || '');
     setSelectedDriverPhone(del.driverPhone || del.deliveryPersonPhone || '');
-    setNewOrderStatus(del.status || 'en_transito');
+    setSelectedDriverId(del.deliveryPersonId || '');
+    setProofPhotoUrl(del.proofPhotoUrl || '');
+    setDeliveryPayment(del.deliveryPayment || 0);
+    setIsPaidToOffice(del.isPaidToOffice || false);
+    setNewOrderStatus(del.status || 'en tránsito');
     setCarrierNotesInput(del.carrierNotes || '');
   };
 
@@ -221,6 +339,10 @@ export const CarrierDashboard: React.FC<CarrierDashboardProps> = ({
         status: newOrderStatus,
         driverName: selectedDriverName.trim() || undefined,
         driverPhone: selectedDriverPhone.trim() || undefined,
+        deliveryPersonId: selectedDriverId.trim() || undefined,
+        proofPhotoUrl: proofPhotoUrl || undefined,
+        deliveryPayment,
+        isPaidToOffice,
         carrierNotes: carrierNotesInput.trim() || undefined,
         carrierId: selectedCarrier?.id,
         carrierName: selectedCarrier?.name
@@ -298,7 +420,7 @@ export const CarrierDashboard: React.FC<CarrierDashboardProps> = ({
       setCarrierApiKeyInput(finalApiKey);
     } else if (finalEndpoint.startsWith('sk_') || finalEndpoint.startsWith('sanpi_') || (!finalEndpoint.includes('://') && finalEndpoint.length > 25 && !finalEndpoint.includes('/'))) {
       finalApiKey = finalEndpoint;
-      finalEndpoint = 'https://studio-345939831630.us-central1.run.app/api/logistics-webhook';
+      finalEndpoint = SACHA_PACK_WEBHOOK_URL;
       setCarrierApiKeyInput(finalApiKey);
       setCarrierEndpointUrl(finalEndpoint);
     } else if (!finalEndpoint.startsWith('http://') && !finalEndpoint.startsWith('https://')) {
@@ -323,57 +445,45 @@ export const CarrierDashboard: React.FC<CarrierDashboardProps> = ({
     setNotifyingCarrier(true);
     setCarrierNotifyResult(null);
 
-    // Pick selected delivery or use representative sample order in exact required format
+    // Send an existing order only; sample payloads belong in the documentation.
     const chosenDelivery = allDeliveries.find(d => d.id === selectedNotifyOrderId);
+    if (!chosenDelivery) {
+      setCarrierNotifyResult({ success: false, message: 'Selecciona una orden real antes de notificar al transportista.' });
+      setNotifyingCarrier(false);
+      return;
+    }
 
-    const orderPayload = chosenDelivery ? {
-      storeId: carrierStoreId.trim() || 'sxOzEivG9GP9SvaVuF1nVpQZCOu1',
+    const orderPayload = {
+      storeId: carrierStoreId.trim() || DEFAULT_SACHA_PACK_STORE_ID,
+      externalOrderId: chosenDelivery.externalOrderId || chosenDelivery.trackingNumber || chosenDelivery.id,
       items: [
         {
           barcode_imei: chosenDelivery.barcode_imei || chosenDelivery.articleId || 'SKU-001',
-          quantity: 1,
-          price: chosenDelivery.basePrice || chosenDelivery.totalCodAmount || 1500,
+          quantity: chosenDelivery.quantity || 1,
+          price: chosenDelivery.basePrice / (chosenDelivery.quantity || 1),
           name: chosenDelivery.articleName || 'Producto A'
         }
       ],
       customer: {
         name: chosenDelivery.customerName || 'Juan Perez',
-        phone: (chosenDelivery.customerPhone || '8095551234').replace(/[^0-9]/g, '') || '8095551234',
-        address: chosenDelivery.address || 'Calle Principal #5',
-        province: chosenDelivery.province || 'Santiago'
-      }
-    } : {
-      storeId: carrierStoreId.trim() || 'sxOzEivG9GP9SvaVuF1nVpQZCOu1',
-      items: [
-        {
-          barcode_imei: 'SKU-001',
-          quantity: 1,
-          price: 1500,
-          name: 'Producto A'
-        }
-      ],
-      customer: {
-        name: 'Juan Perez',
-        phone: '8095551234',
-        address: 'Calle Principal #5',
-        province: 'Santiago'
+        phone: (chosenDelivery.customerPhone || '').replace(/[^0-9]/g, ''),
+        address: chosenDelivery.address,
+        province: chosenDelivery.province
       }
     };
 
     try {
-      const res = await fetch('/api/carrier/notify', {
+      const isSacha = finalEndpoint === SACHA_PACK_WEBHOOK_URL || finalEndpoint === SACHA_PACK_ALT_WEBHOOK_URL;
+      const idToken = isSacha ? await auth.currentUser?.getIdToken() : undefined;
+      const res = await fetch(isSacha ? '/api/logistics-dispatch' : '/api/carrier/notify', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          ...(idToken ? { 'X-Sanpi-Id-Token': idToken } : {})
         },
-        body: JSON.stringify({
-          storeId: carrierStoreId.trim() || 'sxOzEivG9GP9SvaVuF1nVpQZCOu1',
-          apiKey: finalApiKey,
-          endpointUrl: finalEndpoint,
-          order: orderPayload,
-          items: orderPayload.items,
-          customer: orderPayload.customer
-        })
+        body: JSON.stringify(isSacha
+          ? { webhookUrl: finalEndpoint, providerId: selectedProvider?.id, providerCode: selectedProvider?.code, deliveryId: chosenDelivery.id, payload: orderPayload }
+          : { storeId: orderPayload.storeId, apiKey: finalApiKey, endpointUrl: finalEndpoint, order: orderPayload, externalOrderId: orderPayload.externalOrderId, items: orderPayload.items, customer: orderPayload.customer })
       });
 
       const data = await res.json();
@@ -434,7 +544,11 @@ export const CarrierDashboard: React.FC<CarrierDashboardProps> = ({
                     value={selectedCarrier?.id || ''}
                     onChange={(e) => {
                       const found = carrierUsers.find(c => c.id === e.target.value);
-                      if (found) setSelectedCarrier(found);
+                      if (found) {
+                        setIsConfiguringNotify(false);
+                        setNotifyConfigMessage(null);
+                        setSelectedCarrier(found);
+                      }
                     }}
                   >
                     {carrierUsers.map(c => (
@@ -658,10 +772,13 @@ export const CarrierDashboard: React.FC<CarrierDashboardProps> = ({
                     className="w-full px-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-700 cursor-pointer"
                   >
                     <option value="todos">Todos los Estados</option>
-                    <option value="pendiente">Pendiente de Despacho</option>
-                    <option value="en_transito">En Tránsito (Reparto)</option>
+                    <option value="pendiente de recoger pickup">Pendiente de recoger pickup</option>
+                    <option value="pendiente">Pendiente de Despacho / Pickup recibido</option>
+                    <option value="en tránsito">En Tránsito (Reparto)</option>
                     <option value="entregado">Entregado Exitoso</option>
-                    <option value="intento_fallido">Intento Fallido / Novedad</option>
+                    <option value="reprogramado">Reprogramado</option>
+                    <option value="pendiente de retorno">Pendiente de retorno</option>
+                    <option value="retornado a almacén">Retornado a almacén</option>
                     <option value="cancelado">Cancelado</option>
                   </select>
                 </div>
@@ -825,7 +942,7 @@ export const CarrierDashboard: React.FC<CarrierDashboardProps> = ({
                                   Entregado
                                 </span>
                               )}
-                              {del.status === 'en_transito' && (
+                              {del.status === 'en tránsito' && (
                                 <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
                                   <Truck className="w-3 h-3 mr-1 text-blue-600" />
                                   En Tránsito
@@ -837,7 +954,7 @@ export const CarrierDashboard: React.FC<CarrierDashboardProps> = ({
                                   Pendiente
                                 </span>
                               )}
-                              {del.status === 'intento_fallido' && (
+                              {del.status === 'pendiente de retorno' && (
                                 <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold bg-red-100 text-red-800 border border-red-200">
                                   <AlertTriangle className="w-3 h-3 mr-1 text-red-600" />
                                   Intento Fallido
@@ -1029,7 +1146,7 @@ export const CarrierDashboard: React.FC<CarrierDashboardProps> = ({
                     {`${window.location.origin}/api/logistics/webhook-receiver`}
                   </div>
                   <p className="text-[11px] text-slate-500">
-                    Envía actualizaciones de estado en formato JSON con método POST.
+                    Envía JSON por POST con la clave de retorno generada por el administrador en Authorization: Bearer. Para una entrega, incluye proofPhotoUrl.
                   </p>
                 </div>
               </div>
@@ -1105,9 +1222,22 @@ export const CarrierDashboard: React.FC<CarrierDashboardProps> = ({
                     Acepta <span className="font-bold text-slate-800">Store ID</span>, <span className="font-bold text-slate-800">API Key</span> y la <span className="font-bold text-slate-800">URL del Endpoint</span> del transportista para despachar órdenes automáticamente.
                   </p>
                 </div>
-                <span className="self-start sm:self-auto px-3 py-1 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
-                  POST /api/carrier/notify
-                </span>
+                <div className="flex items-center gap-2 self-start sm:self-auto">
+                  {canConfigureNotify && <button
+                    type="button"
+                    onClick={() => {
+                      setNotifyConfigMessage(null);
+                      setIsConfiguringNotify(editing => !editing);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold"
+                  >
+                    {isConfiguringNotify ? <X className="w-3.5 h-3.5" /> : <Settings className="w-3.5 h-3.5" />}
+                    {isConfiguringNotify ? 'Cancelar' : 'Configurar'}
+                  </button>}
+                  <span className="px-3 py-1 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
+                    POST /api/carrier/notify
+                  </span>
+                </div>
               </div>
 
               {/* Parameter Inputs */}
@@ -1120,7 +1250,8 @@ export const CarrierDashboard: React.FC<CarrierDashboardProps> = ({
                     </label>
                     <button
                       type="button"
-                      onClick={() => setCarrierStoreId('sxOzEivG9GP9SvaVuF1nVpQZCOu1')}
+                      onClick={() => setCarrierStoreId(DEFAULT_SACHA_PACK_STORE_ID)}
+                      disabled={!isConfiguringNotify}
                       className="text-[10px] text-blue-600 hover:text-blue-800 font-bold"
                     >
                       Store ID Oficial
@@ -1130,7 +1261,8 @@ export const CarrierDashboard: React.FC<CarrierDashboardProps> = ({
                     type="text"
                     value={carrierStoreId}
                     onChange={(e) => setCarrierStoreId(e.target.value)}
-                    placeholder="sxOzEivG9GP9SvaVuF1nVpQZCOu1"
+                    disabled={!isConfiguringNotify}
+                    placeholder={DEFAULT_SACHA_PACK_STORE_ID}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                   <p className="text-[10px] text-slate-500">Tu ID único de socio en el transportista</p>
@@ -1142,21 +1274,22 @@ export const CarrierDashboard: React.FC<CarrierDashboardProps> = ({
                     <label className="text-xs font-bold text-slate-700">
                       API Key (Bearer Token)
                     </label>
-                    <button
+                    {canConfigureNotify && <button
                       type="button"
                       onClick={() => setShowNotifyKey(!showNotifyKey)}
                       className="text-[10px] text-slate-500 hover:text-slate-800 inline-flex items-center space-x-1 font-semibold"
                     >
                       {showNotifyKey ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
                       <span>{showNotifyKey ? 'Ocultar' : 'Ver'}</span>
-                    </button>
+                    </button>}
                   </div>
                   <div className="relative">
                     <input
                       type={showNotifyKey ? 'text' : 'password'}
                       value={carrierApiKeyInput}
                       onChange={(e) => setCarrierApiKeyInput(e.target.value)}
-                      placeholder="sk_sacha_..."
+                      disabled={!isConfiguringNotify}
+                      placeholder={carrierEndpointUrl === SACHA_PACK_WEBHOOK_URL ? 'Configurar SACHA_API_KEY en Hostinger' : 'API key del transportista'}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
@@ -1170,13 +1303,14 @@ export const CarrierDashboard: React.FC<CarrierDashboardProps> = ({
                           setCarrierApiKeyInput(carrierEndpointUrl.startsWith('http') ? '' : carrierEndpointUrl);
                           setCarrierEndpointUrl(tmp);
                         }}
+                        disabled={!isConfiguringNotify}
                         className="ml-2 font-bold underline text-blue-700 hover:text-blue-900"
                       >
                         Intercambiar con URL
                       </button>
                     </div>
                   )}
-                  <p className="text-[10px] text-slate-500">Enviada en header Authorization: Bearer</p>
+                  <p className="text-[10px] text-slate-500">{carrierApiKeyInput ? 'Clave guardada para enviar en Authorization: Bearer.' : 'Si está vacía, Sacha usa SACHA_API_KEY de Hostinger.'}</p>
                 </div>
 
                 {/* 3. Endpoint URL */}
@@ -1188,16 +1322,18 @@ export const CarrierDashboard: React.FC<CarrierDashboardProps> = ({
                     <div className="flex items-center space-x-1.5">
                       <button
                         type="button"
-                        onClick={() => setCarrierEndpointUrl('https://studio-345939831630.us-central1.run.app/api/logistics-webhook')}
+                        onClick={() => setCarrierEndpointUrl(SACHA_PACK_WEBHOOK_URL)}
+                        disabled={!isConfiguringNotify}
                         className="text-[10px] text-blue-600 hover:text-blue-800 font-bold"
                         title="Endpoint oficial Studio Cloud Run"
                       >
-                        Studio Run
+                        Sacha oficial
                       </button>
                       <span className="text-slate-300">|</span>
                       <button
                         type="button"
-                        onClick={() => setCarrierEndpointUrl('https://www.sachapack.com/api/logistics-webhook')}
+                        onClick={() => setCarrierEndpointUrl(SACHA_PACK_ALT_WEBHOOK_URL)}
+                        disabled={!isConfiguringNotify}
                         className="text-[10px] text-blue-600 hover:text-blue-800 font-bold"
                         title="Endpoint oficial sachapack.com"
                       >
@@ -1207,6 +1343,7 @@ export const CarrierDashboard: React.FC<CarrierDashboardProps> = ({
                       <button
                         type="button"
                         onClick={() => setCarrierEndpointUrl(`${window.location.origin}/api/logistics/webhook-receiver`)}
+                        disabled={!isConfiguringNotify}
                         className="text-[10px] text-emerald-600 hover:text-emerald-800 font-bold"
                         title="Webhook de simulación local de Sanpi para pruebas de desarrollo"
                       >
@@ -1218,7 +1355,8 @@ export const CarrierDashboard: React.FC<CarrierDashboardProps> = ({
                     type="url"
                     value={carrierEndpointUrl}
                     onChange={(e) => setCarrierEndpointUrl(e.target.value)}
-                    placeholder="https://studio-345939831630.us-central1.run.app/api/logistics-webhook"
+                    disabled={!isConfiguringNotify}
+                    placeholder={SACHA_PACK_WEBHOOK_URL}
                     className={`w-full px-3 py-2 bg-slate-50 border rounded-lg text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                       carrierEndpointUrl.trim().startsWith('sk_') || carrierEndpointUrl.trim().startsWith('sanpi_') ? 'border-amber-400 bg-amber-50/50' : 'border-slate-300'
                     }`}
@@ -1230,8 +1368,9 @@ export const CarrierDashboard: React.FC<CarrierDashboardProps> = ({
                         type="button"
                         onClick={() => {
                           setCarrierApiKeyInput(carrierEndpointUrl.trim());
-                          setCarrierEndpointUrl('https://studio-345939831630.us-central1.run.app/api/logistics-webhook');
+                          setCarrierEndpointUrl(SACHA_PACK_WEBHOOK_URL);
                         }}
+                        disabled={!isConfiguringNotify}
                         className="ml-2 font-bold underline text-blue-700 hover:text-blue-900"
                       >
                         Mover a API Key y usar URL oficial
@@ -1242,6 +1381,22 @@ export const CarrierDashboard: React.FC<CarrierDashboardProps> = ({
                 </div>
               </div>
 
+              {isConfiguringNotify && <div className="flex flex-wrap items-center gap-3 rounded-xl border border-blue-200 bg-blue-50 p-3">
+                <button
+                  type="button"
+                  onClick={handleSaveNotifyConfig}
+                  disabled={savingNotifyConfig}
+                  className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white hover:bg-blue-800 disabled:opacity-60"
+                >
+                  {savingNotifyConfig ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  {savingNotifyConfig ? 'Guardando...' : 'Guardar configuración'}
+                </button>
+                <span className="text-xs text-slate-600">Store ID, API Key y endpoint quedarán disponibles al volver a entrar.</span>
+              </div>}
+              {notifyConfigMessage && <p role="status" className={`rounded-lg px-3 py-2 text-xs font-semibold ${notifyConfigMessage.startsWith('Configuración guardada') ? 'bg-emerald-50 text-emerald-800' : 'bg-red-50 text-red-700'}`}>
+                {notifyConfigMessage}
+              </p>}
+
               {/* Order Selection & Payload Settings */}
               <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <div className="space-y-0.5">
@@ -1249,7 +1404,7 @@ export const CarrierDashboard: React.FC<CarrierDashboardProps> = ({
                     Orden para Notificar:
                   </label>
                   <p className="text-[11px] text-slate-500">
-                    Selecciona una orden de la lista o envía la orden demo preconfigurada
+                    Selecciona una orden real para enviar al transportista.
                   </p>
                 </div>
 
@@ -1259,7 +1414,7 @@ export const CarrierDashboard: React.FC<CarrierDashboardProps> = ({
                     onChange={(e) => setSelectedNotifyOrderId(e.target.value)}
                     className="px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 max-w-xs"
                   >
-                    <option value="sample">Orden Demo (Carlos Gómez • Santiago - COD RD$ 2,800)</option>
+                    <option value="">Selecciona una orden</option>
                     {filteredDeliveries.map(del => (
                       <option key={del.id} value={del.id}>
                         {del.trackingNumber || del.id.slice(0, 10)} • {del.recipientName} ({del.province})
@@ -1269,7 +1424,7 @@ export const CarrierDashboard: React.FC<CarrierDashboardProps> = ({
 
                   <button
                     onClick={handleNotifyCarrier}
-                    disabled={notifyingCarrier}
+                    disabled={notifyingCarrier || !selectedNotifyOrderId}
                     className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow-sm transition flex items-center space-x-1.5 whitespace-nowrap"
                   >
                     {notifyingCarrier ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
@@ -1321,6 +1476,7 @@ async function sendOrder(orderData) {
 // Estructura requerida de orderData:
 const sampleOrder = {
   "storeId": "${carrierStoreId}",
+  "externalOrderId": "PEDIDO-10001",
   "items": [
     { "barcode_imei": "SKU-001", "quantity": 1, "price": 1500, "name": "Producto A" }
   ],
@@ -1340,6 +1496,7 @@ sendOrder(sampleOrder).then(console.log);`
   -H "Authorization: Bearer ${carrierApiKeyInput || 'YOUR_API_KEY'}" \\
   -d '{
     "storeId": "${carrierStoreId}",
+    "externalOrderId": "PEDIDO-10001",
     "items": [
       { "barcode_imei": "SKU-001", "quantity": 1, "price": 1500, "name": "Producto A" }
     ],
@@ -1363,6 +1520,7 @@ def send_order(order_data):
 
 order_data = {
     "storeId": "${carrierStoreId}",
+    "externalOrderId": "PEDIDO-10001",
     "items": [
         {"barcode_imei": "SKU-001", "quantity": 1, "price": 1500, "name": "Producto A"}
     ],
@@ -1404,6 +1562,7 @@ async function sendOrder(orderData) {
 // Estructura requerida de orderData:
 const sampleOrder = {
   "storeId": "${carrierStoreId}",
+  "externalOrderId": "PEDIDO-10001",
   "items": [
     { "barcode_imei": "SKU-001", "quantity": 1, "price": 1500, "name": "Producto A" }
   ],
@@ -1427,6 +1586,7 @@ sendOrder(sampleOrder).then(console.log);`}
   -H "Authorization: Bearer ${carrierApiKeyInput || 'YOUR_API_KEY'}" \\
   -d '{
   "storeId": "${carrierStoreId}",
+  "externalOrderId": "PEDIDO-10001",
   "items": [
     { "barcode_imei": "SKU-001", "quantity": 1, "price": 1500, "name": "Producto A" }
   ],
@@ -1455,6 +1615,7 @@ def send_order(order_data):
 
 order_data = {
     "storeId": "${carrierStoreId}",
+    "externalOrderId": "PEDIDO-10001",
     "items": [
         {"barcode_imei": "SKU-001", "quantity": 1, "price": 1500, "name": "Producto A"}
     ],
@@ -1645,13 +1806,37 @@ print(result)`}
                   onChange={(e) => setNewOrderStatus(e.target.value as DeliveryStatus)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="pendiente">Pendiente de Despacho</option>
-                  <option value="en_transito">En Tránsito (Repartidor en Ruta)</option>
+                  <option value="pendiente de recoger pickup">Pendiente de recoger pickup</option>
+                  <option value="pendiente">Pendiente de Despacho / Pickup recibido</option>
+                  <option value="en tránsito">En Tránsito (Repartidor en Ruta)</option>
                   <option value="entregado">Entregado Exitoso & Dinero Cobrado</option>
-                  <option value="intento_fallido">Intento Fallido (Cliente no contesta / Novedad)</option>
+                  <option value="reprogramado">Reprogramado</option>
+                  <option value="pendiente de retorno">Pendiente de retorno</option>
+                  <option value="retornado a almacén">Retornado a almacén</option>
                   <option value="cancelado">Cancelado</option>
                 </select>
               </div>
+
+              <div className="grid sm:grid-cols-2 gap-3">
+                <label className="font-bold text-slate-700">ID del repartidor
+                  <input value={selectedDriverId} onChange={e => setSelectedDriverId(e.target.value)} placeholder="UID del repartidor" className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg" />
+                </label>
+                <label className="font-bold text-slate-700">Pago al repartidor (RD$)
+                  <input type="number" min="0" step="0.01" value={deliveryPayment} onChange={e => setDeliveryPayment(Number(e.target.value))} className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg" />
+                </label>
+              </div>
+              <label className="block font-bold text-slate-700">Foto comprobante de entrega
+                <input type="file" accept="image/*" onChange={async e => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  if (file.size > 350000) { alert('La imagen debe pesar menos de 350 KB.'); e.target.value = ''; return; }
+                  const reader = new FileReader();
+                  reader.onload = () => setProofPhotoUrl(String(reader.result || ''));
+                  reader.readAsDataURL(file);
+                }} className="mt-1 block w-full text-xs" />
+                {proofPhotoUrl && <span className="block mt-1 text-green-700">Comprobante adjunto</span>}
+              </label>
+              <label className="flex items-center gap-2 font-bold text-slate-700"><input type="checkbox" checked={isPaidToOffice} onChange={e => setIsPaidToOffice(e.target.checked)} />Efectivo entregado a oficina</label>
 
               <div className="grid grid-cols-2 gap-2">
                 <div>

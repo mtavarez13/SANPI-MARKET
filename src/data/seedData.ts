@@ -877,7 +877,7 @@ export const INITIAL_DELIVERIES: Delivery[] = [
     createdAt: '2026-07-28T14:20:00Z',
     history: [
       { status: 'pendiente', date: '2026-07-28T14:20:00Z', note: 'Orden creada en Sanpi Marketplace COD' },
-      { status: 'en_transito', date: '2026-07-29T09:00:00Z', note: 'Despachado a Sacha Pack Webhook (200 OK)' },
+      { status: 'en tránsito', date: '2026-07-29T09:00:00Z', note: 'Despachado a Sacha Pack Webhook (200 OK)' },
       { status: 'entregado', date: '2026-07-29T16:45:00Z', note: 'Cobro COD RD$ 2,200 completado' }
     ]
   },
@@ -902,7 +902,7 @@ export const INITIAL_DELIVERIES: Delivery[] = [
     storeId: 'store_1',
     articleId: 'art_2',
     articleName: 'Smartwatch Sanpi Ultra Amoled GPS + SpO2',
-    status: 'en_transito',
+    status: 'en tránsito',
     deliveryPersonId: 'driver_sacha_02',
     deliveryPersonName: 'Junior Almonte (Sacha Pack Santiago)',
     deliveryPersonPhone: '829-555-1234',
@@ -934,7 +934,7 @@ export const INITIAL_DELIVERIES: Delivery[] = [
     createdAt: '2026-07-29T11:00:00Z',
     history: [
       { status: 'pendiente', date: '2026-07-29T11:00:00Z', note: 'Orden registrada en sistema Sanpi' },
-      { status: 'en_transito', date: '2026-07-30T08:30:00Z', note: 'En ruta de transporte Cibao Exprés - Sacha Pack' }
+      { status: 'en tránsito', date: '2026-07-30T08:30:00Z', note: 'En ruta de transporte Cibao Exprés - Sacha Pack' }
     ]
   },
   {
@@ -978,7 +978,7 @@ export const INITIAL_DELIVERIES: Delivery[] = [
     createdAt: '2026-07-27T16:10:00Z',
     history: [
       { status: 'pendiente', date: '2026-07-27T16:10:00Z', note: 'Orden recibida en plataforma' },
-      { status: 'en_transito', date: '2026-07-28T07:15:00Z', note: 'Despachado a Sacha Pack Webhook (200 OK)' },
+      { status: 'en tránsito', date: '2026-07-28T07:15:00Z', note: 'Despachado a Sacha Pack Webhook (200 OK)' },
       { status: 'entregado', date: '2026-07-28T18:00:00Z', note: 'Cliente pagó RD$ 1,850 en efectivo' }
     ]
   },

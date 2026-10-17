@@ -15,14 +15,15 @@ export const FloatingWhatsApp: React.FC<FloatingWhatsAppProps> = ({
   const waUrl = `https://wa.me/${finalPhone}?text=${encodeURIComponent(defaultMessage)}`;
 
   return (
-    <div className="fixed bottom-6 left-6 z-50 group">
+    <div className="fixed bottom-4 left-4 sm:bottom-6 sm:left-6 z-40 group">
       {/* Floating Action Button */}
       <a
         href={waUrl}
         target="_blank"
         rel="noopener noreferrer"
         id="floating-whatsapp-support"
-        className="flex items-center gap-3 bg-gradient-to-r from-emerald-600 via-emerald-500 to-green-500 text-white pl-4 pr-5 py-3 rounded-full shadow-2xl shadow-emerald-600/40 border border-emerald-400/30 hover:scale-105 hover:shadow-emerald-500/50 active:scale-95 transition-all duration-300 group"
+        className="flex h-12 w-12 sm:h-auto sm:w-auto items-center justify-center sm:justify-start sm:gap-3 bg-gradient-to-r from-emerald-600 via-emerald-500 to-green-500 text-white sm:pl-4 sm:pr-5 sm:py-3 rounded-full shadow-xl shadow-emerald-600/30 border border-emerald-400/30 hover:scale-105 hover:shadow-emerald-500/40 active:scale-95 transition-all duration-300 group"
+        aria-label="Soporte oficial por WhatsApp"
         title="WhatsApp Oficial Sanpi: 809-676-6690"
       >
         <div className="relative">
@@ -35,7 +36,7 @@ export const FloatingWhatsApp: React.FC<FloatingWhatsAppProps> = ({
           </span>
         </div>
 
-        <div className="text-left leading-tight">
+        <div className="hidden sm:block text-left leading-tight">
           <div className="flex items-center gap-1.5">
             <span className="text-[10px] font-black uppercase tracking-wider text-emerald-100 flex items-center gap-1">
               <Headphones className="w-2.5 h-2.5" /> Soporte Oficial

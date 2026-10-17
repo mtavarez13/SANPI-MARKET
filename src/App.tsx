@@ -1,6 +1,14 @@
 import React, { useState, useEffect } from 'react';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { OrdersDashboard } from './components/OrdersDashboard';
+import { CustomerPurchases } from './components/CustomerPurchases';
+import { AccountingWorkspace } from './components/AccountingWorkspace';
+import { FeaturedProductsManager } from './components/FeaturedProductsManager';
+import { parseFeaturedIds, resolveFeaturedArticles } from './lib/featuredProducts';
+import { canViewOrders } from './lib/orderVisibility';
 import { Navbar } from './components/Navbar';
 import { HeroSection } from './components/HeroSection';
+import { MarketplaceServices } from './components/MarketplaceServices';
 import { HowItWorksSection } from './components/HowItWorksSection';
 import { PlansSection } from './components/PlansSection';
 import { ExploreView } from './components/ExploreView';
@@ -13,6 +21,7 @@ import { PartnerRegistrationModal } from './components/PartnerRegistrationModal'
 import { NotificationBanner } from './components/NotificationBanner';
 import { DropshipperHub } from './components/DropshipperHub';
 import { LandingPageView } from './components/LandingPageView';
+import { StoreRegistrationLanding } from './components/StoreRegistrationLanding';
 import { LandingPageGeneratorModal } from './components/LandingPageGeneratorModal';
 import { GoogleAuthModal } from './components/GoogleAuthModal';
 import { WelcomeEmailModal } from './components/WelcomeEmailModal';
@@ -25,20 +34,24 @@ import { Footer } from './components/Footer';
 import { FloatingWhatsApp } from './components/FloatingWhatsApp';
 import { sanpiManager } from './lib/storeManager';
 import { Article, CartItem, Delivery, LandingPageConfig, StorePlan, UserProfile } from './types';
-import { validateFirebaseConnection } from './lib/firebase';
+import { db, validateFirebaseConnection } from './lib/firebase';
 import { getCurrentStoredUser, isSuperAdmin, setupGlobalAuthObserver } from './lib/authService';
+import { canOpenMarketplaceView, isPublicMarketplaceUser } from './lib/publicMarketplaceAccess';
+import { rolePanelTheme } from './lib/rolePanelTheme';
 
 export default function App() {
-  const [currentView, setCurrentView] = useState<'explore' | 'catalogs' | 'dropship' | 'landing_page' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting'>('explore');
+  const [currentView, setCurrentView] = useState<'explore' | 'catalogs' | 'dropship' | 'landing_page' | 'seller_landing' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting' | 'orders' | 'featured' | 'purchases'>('explore');
   const [searchQuery, setSearchQuery] = useState('');
+  const [trackingQuery, setTrackingQuery] = useState('');
+  const [trackingReturnView, setTrackingReturnView] = useState<'explore' | 'purchases'>('explore');
   const [selectedStoreSlug, setSelectedStoreSlug] = useState<string | null>(null);
   const [activeLpSlug, setActiveLpSlug] = useState<string | null>(null);
   const [selectedLocation, setSelectedLocation] = useState<string>('Distrito Nacional');
 
   // Auth state
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => getCurrentStoredUser());
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [authModalOpen, setAuthModalOpen] = useState(false);
-  const [authDefaultRole, setAuthDefaultRole] = useState<'customer' | 'dropshipper' | 'partner'>('dropshipper');
+  const [authDefaultRole, setAuthDefaultRole] = useState<'customer' | 'dropshipper' | 'partner'>('customer');
   const [welcomeModalOpen, setWelcomeModalOpen] = useState(false);
   const [welcomeModalUser, setWelcomeModalUser] = useState<UserProfile | null>(null);
   const [customerAddressModalOpen, setCustomerAddressModalOpen] = useState(false);
@@ -66,6 +79,7 @@ export default function App() {
   const [expenses, setExpenses] = useState(sanpiManager.expenses);
   const [landingPages, setLandingPages] = useState(sanpiManager.landingPages);
   const [siteConfig, setSiteConfig] = useState(sanpiManager.siteConfig);
+  const [featuredArticleIds, setFeaturedArticleIds] = useState<string[]>([]);
 
   const [notificationOrder, setNotificationOrder] = useState<Delivery | null>(null);
 
@@ -74,6 +88,23 @@ export default function App() {
     const urlParams = new URLSearchParams(window.location.search);
     const lpParam = urlParams.get('lp');
     const storeParam = urlParams.get('store');
+
+    if (window.location.pathname.replace(/\/+$/, '').toLowerCase() === '/sanpimarketplace') {
+      setCurrentView('seller_landing');
+      return;
+    }
+
+    if (window.location.pathname === '/orders' || window.location.hash === '#/orders') {
+      const stored = getCurrentStoredUser();
+      setCurrentView(canViewOrders(stored, isSuperAdmin(stored?.email)) ? 'orders' : 'explore');
+      return;
+    }
+
+    if (window.location.pathname === '/mis-compras' || window.location.hash === '#/mis-compras') {
+      const stored = getCurrentStoredUser();
+      setCurrentView(stored?.role === 'customer' ? 'purchases' : 'explore');
+      return;
+    }
 
     if (lpParam) {
       setActiveLpSlug(lpParam);
@@ -88,15 +119,19 @@ export default function App() {
     }
     const hash = window.location.hash.replace(/^#\/?/, '').trim();
     const candidate = storeParam || rawPath || hash;
+    if (!candidate) {
+      setCurrentView('explore');
+      return;
+    }
 
-    const reserved = ['explore', 'catalogs', 'dropship', 'track', 'partner', 'admin', 'marketplace', 'api', 'landing_page', 'carrier', 'transport', 'supplier', 'proveedor', 'accounting', ''];
+    const reserved = ['explore', 'catalogs', 'dropship', 'track', 'partner', 'admin', 'marketplace', 'api', 'landing_page', 'carrier', 'transport', 'supplier', 'proveedor', 'accounting', 'featured', 'mis-compras', ''];
     
-    // Customer restriction guard on URL navigation
+    // Restrict direct internal URLs for visitors and customers.
     const stored = getCurrentStoredUser();
-    const isCustomerUser = stored?.role === 'customer' && !isSuperAdmin(stored?.email);
+    const publicOnly = isPublicMarketplaceUser(stored, isSuperAdmin(stored?.email));
 
     if (candidate.toLowerCase() === 'carrier' || candidate.toLowerCase() === 'transport' || candidate.toLowerCase() === 'transporte') {
-      if (isCustomerUser) {
+      if (publicOnly) {
         setCurrentView('explore');
         return;
       }
@@ -104,7 +139,7 @@ export default function App() {
       return;
     }
     if (candidate.toLowerCase() === 'supplier' || candidate.toLowerCase() === 'proveedor' || candidate.toLowerCase() === 'proveedores') {
-      if (isCustomerUser) {
+      if (publicOnly) {
         setCurrentView('explore');
         return;
       }
@@ -112,15 +147,19 @@ export default function App() {
       return;
     }
     if (candidate.toLowerCase() === 'admin' || candidate.toLowerCase() === 'marketplace') {
-      if (isCustomerUser) {
+      if (publicOnly) {
         setCurrentView('explore');
         return;
       }
       setCurrentView('admin');
       return;
     }
+    if (candidate.toLowerCase() === 'featured') {
+      setCurrentView(publicOnly ? 'explore' : 'featured');
+      return;
+    }
     if (candidate.toLowerCase() === 'accounting' || candidate.toLowerCase() === 'dropship') {
-      if (isCustomerUser) {
+      if (publicOnly) {
         setCurrentView('explore');
         return;
       }
@@ -149,12 +188,6 @@ export default function App() {
   useEffect(() => {
     validateFirebaseConnection();
 
-    // Check stored user
-    const stored = getCurrentStoredUser();
-    if (stored) {
-      setCurrentUser(stored);
-    }
-
     parseUrlRoute();
 
     const handlePopState = () => {
@@ -176,6 +209,9 @@ export default function App() {
         setNotificationOrder(sanpiManager.lastNewOrder);
       }
     });
+    const unsubscribeFeatured = onSnapshot(doc(db, 'featured_public', 'homepage'), snapshot => {
+      setFeaturedArticleIds(parseFeaturedIds(snapshot.data()));
+    }, () => setFeaturedArticleIds([]));
 
     const handleRoleUpdated = (e: any) => {
       const updatedProfile = e.detail as UserProfile;
@@ -190,9 +226,8 @@ export default function App() {
 
     // Global auth observer to auto-sync Google and email logged in users
     const authUnsubscribe = setupGlobalAuthObserver((loadedUser) => {
-      if (loadedUser) {
-        setCurrentUser(loadedUser);
-      }
+      setCurrentUser(loadedUser);
+      if (loadedUser) parseUrlRoute();
     });
 
     return () => {
@@ -200,32 +235,47 @@ export default function App() {
       window.removeEventListener('sanpi_user_role_updated', handleRoleUpdated);
       authUnsubscribe();
       unsubscribe();
+      unsubscribeFeatured();
     };
   }, []);
 
-  // Strict role guard: Customer users cannot access internal admin, partner, supplier, carrier, or accounting panels
+  // A change of identity immediately removes access to internal views.
   useEffect(() => {
-    if (currentUser?.role === 'customer' && !isSuperAdmin(currentUser?.email)) {
-      if (['carrier', 'supplier', 'admin', 'accounting', 'dropship'].includes(currentView)) {
-        setCurrentView('explore');
-      }
-    }
+    if (!canOpenMarketplaceView(currentUser, currentView, isSuperAdmin(currentUser?.email))) setCurrentView('explore');
   }, [currentUser, currentView]);
 
-  const handleSetCurrentView = (view: 'explore' | 'catalogs' | 'dropship' | 'landing_page' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting') => {
+  useEffect(() => {
+    if (isPublicMarketplaceUser(currentUser, isSuperAdmin(currentUser?.email))) {
+      setSidebarOpen(false);
+      setGeneratorModalOpen(false);
+      setPartnerModalOpen(false);
+      setNotificationOrder(null);
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (currentView === 'featured' && currentUser?.role !== 'admin') setCurrentView('explore');
+  }, [currentUser, currentView]);
+
+  useEffect(() => {
+    if (currentView === 'orders' && !canViewOrders(currentUser, isSuperAdmin(currentUser?.email))) setCurrentView('explore');
+  }, [currentUser, currentView]);
+
+  const handleSetCurrentView = (view: 'explore' | 'catalogs' | 'dropship' | 'landing_page' | 'seller_landing' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting' | 'orders' | 'featured' | 'purchases') => {
+    if (!canOpenMarketplaceView(currentUser, view, isSuperAdmin(currentUser?.email)) && view !== 'partner') return;
+    if (view === 'orders' && !canViewOrders(currentUser, isSuperAdmin(currentUser?.email))) return;
+    if (view === 'featured' && currentUser?.role !== 'admin') return;
+    if (view === 'track') setTrackingReturnView('explore');
+    if (view === 'seller_landing') window.history.pushState({}, '', '/sanpimarketplace');
+    else if (view === 'orders') window.history.pushState({}, '', '/orders');
+    else if (view === 'purchases') window.history.pushState({}, '', '/mis-compras');
+    else if (['/orders', '/mis-compras', '/sanpimarketplace'].includes(window.location.pathname)) window.history.pushState({}, '', '/');
     if (view === 'partner') {
       setSelectedPlanForRegistration('pro');
       setPartnerModalOpen(true);
       return;
     }
 
-    // Role guard: Customers only have access to shopping, catalog, tracking, and shipping address
-    if (currentUser?.role === 'customer' && !isSuperAdmin(currentUser?.email)) {
-      if (view === 'carrier' || view === 'supplier' || view === 'admin' || view === 'accounting' || view === 'dropship') {
-        setCurrentView('explore');
-        return;
-      }
-    }
     setCurrentView(view);
   };
 
@@ -299,15 +349,18 @@ export default function App() {
   };
 
   const totalCartCount = cart.reduce((acc, item) => acc + item.quantity, 0);
+  const publicOnly = isPublicMarketplaceUser(currentUser, isSuperAdmin(currentUser?.email));
+  const inRolePanel = !publicOnly && ['admin', 'partner', 'dropship', 'supplier', 'carrier', 'accounting', 'orders', 'featured'].includes(currentView);
+  const panelTheme = inRolePanel ? rolePanelTheme(currentUser?.role) : null;
 
   return (
-    <div className="min-h-screen bg-white text-slate-900 font-sans selection:bg-purple-600 selection:text-white flex flex-col justify-between">
+    <div data-panel-role={panelTheme ? currentUser?.role : undefined} className="marketplace-app min-h-screen bg-[#f7f8fc] text-slate-900 font-sans selection:bg-purple-600 selection:text-white flex flex-col justify-between">
       
       {/* Background Clean Canvas */}
       <div className="fixed inset-0 bg-gradient-to-b from-purple-50/20 via-white to-slate-50/30 -z-10" />
 
       {/* Left Navigation Sidebar with User Panels by Role */}
-      {currentView !== 'landing_page' && (
+      {currentView !== 'landing_page' && currentView !== 'seller_landing' && !publicOnly && (
         <Sidebar
           currentView={currentView}
           setCurrentView={handleSetCurrentView}
@@ -340,12 +393,12 @@ export default function App() {
       )}
 
       {/* Content Wrapper offset by Left Sidebar on Desktop */}
-      <div className={`flex-1 flex flex-col justify-between transition-all duration-300 min-h-screen ${currentView !== 'landing_page' ? (sidebarCollapsed ? 'lg:pl-20' : 'lg:pl-72') : ''}`}>
+      <div className={`flex-1 flex flex-col justify-between transition-all duration-300 min-h-screen ${currentView !== 'landing_page' && currentView !== 'seller_landing' && !publicOnly ? (sidebarCollapsed ? 'lg:pl-20' : 'lg:pl-72') : ''}`}>
 
         {/* Main Top Header (hidden in standalone Landing Page view) */}
-        {currentView !== 'landing_page' && (
+        {currentView !== 'landing_page' && currentView !== 'seller_landing' && (
           <Navbar
-            currentView={currentView === 'landing_page' ? 'dropship' : currentView}
+            currentView={currentView}
             setCurrentView={handleSetCurrentView}
             selectedStoreSlug={selectedStoreSlug}
             onSelectStoreSlug={handleSelectStoreSlug}
@@ -355,7 +408,7 @@ export default function App() {
             setSearchQuery={setSearchQuery}
             currentUser={currentUser}
             onOpenAuthModal={() => {
-              setAuthDefaultRole('dropshipper');
+              setAuthDefaultRole('customer');
               setAuthModalOpen(true);
             }}
             onOpenPartnerModal={() => {
@@ -369,14 +422,16 @@ export default function App() {
             selectedLocation={selectedLocation}
             onSelectLocation={setSelectedLocation}
             config={siteConfig}
-            onToggleSidebar={() => setSidebarOpen(prev => !prev)}
+            onToggleSidebar={publicOnly ? undefined : () => setSidebarOpen(prev => !prev)}
             isSidebarOpen={sidebarOpen}
             onOpenAddressModal={() => setCustomerAddressModalOpen(true)}
           />
         )}
 
       {/* App Main Body View Area */}
-      <main className={`flex-1 w-full mx-auto ${currentView === 'landing_page' ? 'px-0 pt-0' : 'max-w-[1600px] xl:max-w-[1720px] 2xl:max-w-[1850px] px-3 sm:px-6 lg:px-8 xl:px-10 pt-4 sm:pt-6'}`}>
+      <main className={`flex-1 w-full mx-auto ${currentView === 'landing_page' || currentView === 'seller_landing' ? 'px-0 pt-0' : 'max-w-[1600px] xl:max-w-[1720px] 2xl:max-w-[1850px] px-3 sm:px-6 lg:px-8 xl:px-10 pt-4 sm:pt-6'}`}>
+
+        {panelTheme && <div className="role-panel-heading mb-5 rounded-2xl px-5 py-4 text-white" role="banner"><p className="text-[10px] font-black uppercase tracking-[.22em] opacity-80">Panel de {panelTheme.label}</p><p className="mt-1 text-lg font-bold">{panelTheme.area}</p></div>}
         
         {/* LANDING PAGE STANDALONE VIEW (/lp/[slug]) */}
         {currentView === 'landing_page' && activeLpSlug && (
@@ -389,6 +444,12 @@ export default function App() {
           />
         )}
 
+        {currentView === 'seller_landing' && <StoreRegistrationLanding
+          plans={sanpiManager.getPlans(true)}
+          onBack={() => handleSetCurrentView('explore')}
+          onOpenLogin={() => { setAuthDefaultRole('partner'); setAuthModalOpen(true); }}
+        />}
+
         {/* HOMEPAGE / EXPLORE VIEW */}
         {currentView === 'explore' && (
           <div className="space-y-12 sm:space-y-16">
@@ -400,8 +461,9 @@ export default function App() {
                 if (el) el.scrollIntoView({ behavior: 'smooth' });
               }}
               onJoinClick={() => {
+                if (publicOnly) { handleSetCurrentView('seller_landing'); return; }
                 if (currentUser) {
-                  if (currentUser.role === 'partner') setCurrentView('catalogs');
+                  if (canViewOrders(currentUser, isSuperAdmin(currentUser.email))) handleSetCurrentView('orders');
                   else if (currentUser.role === 'admin') setCurrentView('admin');
                   else setCurrentView('dropship');
                 } else {
@@ -410,8 +472,12 @@ export default function App() {
                 }
               }}
               currentUser={currentUser}
+              showJoinAction
               totalProductsCount={articles.filter(a => a.status === 'aprobado' && a.isPublic).length}
-              totalStoresCount={stores.filter(s => s.isMarketplace).length}
+              totalStoresCount={stores.filter(s => s.isMarketplace && s.isActive).length}
+              featuredArticles={resolveFeaturedArticles(featuredArticleIds, articles)}
+              onSelectArticle={setSelectedArticle}
+              onTrackSearch={(guide) => { setTrackingQuery(guide); setCurrentView('track'); }}
               config={siteConfig}
             />
 
@@ -432,8 +498,13 @@ export default function App() {
                 setAuthDefaultRole('dropshipper');
                 setAuthModalOpen(true);
               }}
-              onResellArticle={handleResellArticle}
+              onResellArticle={publicOnly ? undefined : handleResellArticle}
               onViewLandingPage={handleOpenLp}
+            />
+
+            <MarketplaceServices
+              onExplore={() => document.getElementById('catalogo')?.scrollIntoView({ behavior: 'smooth' })}
+              onTrack={() => handleSetCurrentView('track')}
             />
 
             {/* Sacha Pack Official Product Banner on Main Page */}
@@ -446,7 +517,7 @@ export default function App() {
             />
 
             {/* How It Works Section */}
-            <HowItWorksSection
+            {!publicOnly && <HowItWorksSection
               onStartAsBuyer={() => {
                 const el = document.getElementById('catalogo');
                 if (el) el.scrollIntoView({ behavior: 'smooth' });
@@ -463,16 +534,31 @@ export default function App() {
                   setCurrentView('dropship');
                 }
               }}
-            />
+            />}
 
             {/* Plans & Subscriptions Section */}
-            <PlansSection
+            {!publicOnly && <PlansSection
               onSelectPlan={handleSelectPlan}
               currentUser={currentUser}
-            />
+            />}
 
           </div>
         )}
+
+        {currentView === 'orders' && !publicOnly && <OrdersDashboard key={currentUser?.uid} currentUser={currentUser} deliveries={deliveries} stores={stores} landingPages={landingPages} />}
+        {currentView === 'purchases' && currentUser?.role === 'customer' && <CustomerPurchases
+          key={currentUser.uid}
+          currentUser={currentUser}
+          articles={articles}
+          stores={stores}
+          onExplore={() => handleSetCurrentView('explore')}
+          onTrack={guide => {
+            setTrackingReturnView('purchases');
+            setTrackingQuery(guide);
+            window.history.pushState({}, '', '/');
+            setCurrentView('track');
+          }}
+        />}
 
         {/* STORE CATALOGS VIEW */}
         {currentView === 'catalogs' && (
@@ -489,7 +575,7 @@ export default function App() {
         )}
 
         {/* DROPSHIPPING & LANDING PAGES HUB */}
-        {currentView === 'dropship' && (
+        {currentView === 'dropship' && !publicOnly && (
           <DropshipperHub
             articles={articles}
             stores={stores}
@@ -513,12 +599,14 @@ export default function App() {
         {currentView === 'track' && (
           <TrackingModal
             deliveries={deliveries}
-            onClose={() => setCurrentView('explore')}
+            initialQuery={trackingQuery}
+            backLabel={trackingReturnView === 'purchases' ? 'Volver a mis compras' : undefined}
+            onClose={() => { setTrackingQuery(''); handleSetCurrentView(trackingReturnView); setTrackingReturnView('explore'); }}
           />
         )}
 
         {/* ADMIN PANEL (/marketplace) */}
-        {currentView === 'admin' && (
+        {currentView === 'admin' && !publicOnly && (
           <AdminPanel
             stores={stores}
             subscriptions={subscriptions}
@@ -546,8 +634,16 @@ export default function App() {
           />
         )}
 
+        {currentView === 'accounting' && !publicOnly && currentUser && (
+          <AccountingWorkspace currentUser={currentUser} stores={stores} articles={articles} deliveries={deliveries} transactions={transactions} expenses={expenses} landingPages={landingPages} />
+        )}
+
+        {currentView === 'featured' && !publicOnly && currentUser?.role === 'admin' && (
+          <FeaturedProductsManager currentUser={currentUser} articles={articles} />
+        )}
+
         {/* CARRIER / TRANSPORT DASHBOARD */}
-        {currentView === 'carrier' && (
+        {currentView === 'carrier' && !publicOnly && (
           <CarrierDashboard
             currentUser={currentUser}
             onBackToMarketplace={() => setCurrentView('explore')}
@@ -555,7 +651,7 @@ export default function App() {
         )}
 
         {/* SUPPLIER WHOLESALE DASHBOARD */}
-        {currentView === 'supplier' && (
+        {currentView === 'supplier' && !publicOnly && (
           <SupplierDashboard
             currentUser={currentUser}
             onBackToMarketplace={() => setCurrentView('explore')}
@@ -594,12 +690,16 @@ export default function App() {
           onOrderSuccess={(delivery) => {
             setDeliveries([...sanpiManager.deliveries]);
           }}
+          onViewPurchases={() => {
+            setCheckoutOpen(false);
+            handleSetCurrentView('purchases');
+          }}
         />
       )}
 
       {/* Customer Shipping Address Profile Modal */}
       <CustomerAddressModal
-        isOpen={customerAddressModalOpen}
+        isOpen={!publicOnly && customerAddressModalOpen}
         onClose={() => setCustomerAddressModalOpen(false)}
         currentUser={currentUser}
         onAddressSaved={(updatedProfile) => {
@@ -608,7 +708,7 @@ export default function App() {
       />
 
       {/* Partner Registration Modal */}
-      {partnerModalOpen && (
+      {!publicOnly && partnerModalOpen && (
         <PartnerRegistrationModal
           initialPlan={selectedPlanForRegistration}
           onClose={() => setPartnerModalOpen(false)}
@@ -620,7 +720,7 @@ export default function App() {
       )}
 
       {/* Landing Page Generator Modal */}
-      {generatorModalOpen && (
+      {!publicOnly && generatorModalOpen && (
         <LandingPageGeneratorModal
           preselectedArticle={generatorPreselectedArticle}
           onClose={() => {
@@ -679,40 +779,36 @@ export default function App() {
       />
 
       {/* Real-time Order Notification Banner with TTS Voice */}
-      <NotificationBanner
+      {!publicOnly && <NotificationBanner
         order={notificationOrder}
         onDismiss={() => setNotificationOrder(null)}
         onViewOrder={(order) => {
           setCurrentView('track');
         }}
-      />
+      />}
 
       {/* Global Minimalist Footer */}
-      {currentView !== 'landing_page' && (
+      {currentView !== 'landing_page' && currentView !== 'seller_landing' && (
         <Footer
-          onNav={(view) => {
-            if (view === 'partner') {
-              setSelectedPlanForRegistration('pro');
-              setPartnerModalOpen(true);
-            } else {
-              setCurrentView(view);
-            }
-          }}
+          onNav={handleSetCurrentView}
           onOpenAuth={() => {
             setAuthDefaultRole('dropshipper');
             setAuthModalOpen(true);
           }}
           config={siteConfig}
+          showBusinessLinks={!publicOnly}
         />
       )}
 
       </div>
 
       {/* Floating Official Sanpi WhatsApp Support Button (809-676-6690) */}
-      <FloatingWhatsApp
-        phoneNumber="18096766690"
-        defaultMessage="Hola Sanpi Market, necesito asistencia con una orden o servicio."
-      />
+      {!checkoutOpen && currentView !== 'landing_page' && currentView !== 'seller_landing' && (
+        <FloatingWhatsApp
+          phoneNumber="18096766690"
+          defaultMessage="Hola Sanpi Market, necesito asistencia con una orden o servicio."
+        />
+      )}
 
     </div>
   );

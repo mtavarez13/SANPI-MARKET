@@ -4,6 +4,7 @@ import { SANPI_FLAT_SHIPPING_FEE } from '../lib/firebase';
 import { StoreSettingsModal } from './StoreSettingsModal';
 import { AddStoreProductModal } from './AddStoreProductModal';
 import { isSuperAdmin } from '../lib/authService';
+import { isPublicMarketplaceUser } from '../lib/publicMarketplaceAccess';
 import {
   MapPin,
   Phone,
@@ -62,6 +63,7 @@ export const StoreCatalogView: React.FC<StoreCatalogViewProps> = ({
   // Modals for editing store & adding products
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [addProductModalOpen, setAddProductModalOpen] = useState(false);
+  const publicOnly = isPublicMarketplaceUser(currentUser, isSuperAdmin(currentUser?.email));
 
   const selectedStore = stores.find(
     (s) =>
@@ -72,13 +74,13 @@ export const StoreCatalogView: React.FC<StoreCatalogViewProps> = ({
 
   // Check if current user is owner of the active store or super admin
   const isOwner = useMemo(() => {
-    if (!currentUser || !selectedStore) return false;
+    if (publicOnly || !currentUser || !selectedStore) return false;
     if (isSuperAdmin(currentUser.email)) return true;
     if (selectedStore.ownerId && selectedStore.ownerId === currentUser.uid) return true;
     if (selectedStore.ownerEmail && selectedStore.ownerEmail.toLowerCase() === currentUser.email?.toLowerCase()) return true;
     if (currentUser.storeName && currentUser.storeName.toLowerCase() === selectedStore.name.toLowerCase()) return true;
     return false;
-  }, [currentUser, selectedStore]);
+  }, [currentUser, selectedStore, publicOnly]);
 
   const storeArticles = useMemo(() => {
     if (!selectedStore) return [];
@@ -189,13 +191,13 @@ export const StoreCatalogView: React.FC<StoreCatalogViewProps> = ({
             </div>
 
             {/* Quick Button to Create / Configure My Store */}
-            <button
+            {!publicOnly && <button
               onClick={() => setSettingsModalOpen(true)}
               className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold transition-all flex items-center gap-2 shadow-lg shadow-purple-600/30 active:scale-95"
             >
               <Sparkles className="w-4 h-4 text-amber-300" />
               <span>Crear / Personalizar Mi Tienda</span>
-            </button>
+            </button>}
 
             <button
               onClick={onBack}
@@ -295,7 +297,7 @@ export const StoreCatalogView: React.FC<StoreCatalogViewProps> = ({
 
         {/* Store Settings Modal for creating or editing */}
         <StoreSettingsModal
-          isOpen={settingsModalOpen}
+          isOpen={!publicOnly && settingsModalOpen}
           onClose={() => setSettingsModalOpen(false)}
           currentUser={currentUser}
           onSuccess={(newStore) => {
@@ -815,7 +817,7 @@ export const StoreCatalogView: React.FC<StoreCatalogViewProps> = ({
 
       {/* Store Settings Modal for editing cover, logo, name and slug */}
       <StoreSettingsModal
-        isOpen={settingsModalOpen}
+        isOpen={!publicOnly && settingsModalOpen}
         onClose={() => setSettingsModalOpen(false)}
         store={selectedStore}
         currentUser={currentUser}
@@ -827,7 +829,7 @@ export const StoreCatalogView: React.FC<StoreCatalogViewProps> = ({
       {/* Add Product Modal for adding items directly to this store */}
       {selectedStore && (
         <AddStoreProductModal
-          isOpen={addProductModalOpen}
+          isOpen={!publicOnly && isOwner && addProductModalOpen}
           onClose={() => setAddProductModalOpen(false)}
           store={selectedStore}
           onSuccess={() => {

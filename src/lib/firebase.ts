@@ -1,8 +1,7 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { initializeFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import { 
-  getAuth, 
-  signInAnonymously
+  getAuth
 } from 'firebase/auth';
 
 import firebaseAppletConfig from '../../firebase-applet-config.json';
@@ -20,16 +19,10 @@ export const firebaseConfig = {
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseAppletConfig);
 
 // Initialize Firestore directly with designated databaseId
-export const db = getFirestore(app, firebaseAppletConfig.firestoreDatabaseId);
+export const db = initializeFirestore(app, { ignoreUndefinedProperties: true }, firebaseAppletConfig.firestoreDatabaseId);
 
 // Initialize Firebase Auth
 export const auth = getAuth(app);
-
-// Authenticate session anonymously to ensure valid credentials safely
-signInAnonymously(auth).catch((err) => {
-  // Silent fallback if already signed in or network unavailable
-  console.debug("Anonymous auth initialization:", err?.message || err);
-});
 
 // SANPI SHIPPING CONSTANT
 export const SANPI_FLAT_SHIPPING_FEE = 350; // RD$ 350

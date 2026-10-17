@@ -45,3 +45,29 @@
   }
 }
 
+
+/* Marketplace surfaces and accessible order controls. */
+.marketplace-app { background: #f7f8fc; }
+.marketplace-app[data-panel-role="admin"] { --panel-accent: #6d28d9; --panel-soft: #f3e8ff; --panel-canvas: #faf7ff; }
+.marketplace-app[data-panel-role="partner"] { --panel-accent: #047857; --panel-soft: #d1fae5; --panel-canvas: #f4fdf8; }
+.marketplace-app[data-panel-role="dropshipper"] { --panel-accent: #a21caf; --panel-soft: #fae8ff; --panel-canvas: #fdf7ff; }
+.marketplace-app[data-panel-role="supplier"] { --panel-accent: #4338ca; --panel-soft: #e0e7ff; --panel-canvas: #f6f7ff; }
+.marketplace-app[data-panel-role="carrier"] { --panel-accent: #0369a1; --panel-soft: #e0f2fe; --panel-canvas: #f4fbff; }
+.marketplace-app[data-panel-role] { background: var(--panel-canvas); }
+.marketplace-app[data-panel-role] #sanpi-left-sidebar { border-left: 5px solid var(--panel-accent); border-right-color: var(--panel-soft); }
+.marketplace-app[data-panel-role] #sanpi-left-sidebar > div:first-child { background: var(--panel-soft); }
+.marketplace-app[data-panel-role] #sanpi-left-sidebar button.bg-purple-600,
+.marketplace-app[data-panel-role] #sanpi-left-sidebar button.bg-slate-900 { background-color: var(--panel-accent) !important; color: white; }
+.marketplace-app[data-panel-role] .role-panel-heading { background: var(--panel-accent); box-shadow: 0 10px 26px color-mix(in srgb, var(--panel-accent) 16%, transparent); }
+.marketplace-app[data-panel-role] :is(button, a, input, select):focus-visible { outline-color: var(--panel-accent); }
+.marketplace-app button, .marketplace-app select { cursor: pointer; }
+.marketplace-app button:disabled { cursor: not-allowed; }
+.marketplace-app :is(button, a, input, select):focus-visible { outline: 3px solid #8b5cf6; outline-offset: 3px; }
+.order-input { width: 100%; min-height: 42px; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; background: #fff; font-size: 12px; color: #334155; }
+.order-input.pl-10 { padding-left: 40px; }
+.order-input.w-auto { width: auto; max-width: 100%; }
+.market-feature img { transition: transform .35s ease; }
+.market-feature:hover img { transform: scale(1.04); }
+@media (prefers-reduced-motion: reduce) {
+  .marketplace-app *, .marketplace-app *::before, .marketplace-app *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}

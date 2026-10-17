@@ -6,8 +6,47 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function isRegisteredUser() {
+      return isSignedIn() && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+
+    function isGuest() {
+      return isSignedIn() && request.auth.token.firebase.sign_in_provider == 'anonymous';
+    }
+
+    function validGuestDelivery(deliveryId) {
+      return isGuest()
+        && request.resource.data.createdByUid == request.auth.uid
+        && request.resource.data.id == deliveryId
+        && request.resource.data.trackingNumber == deliveryId
+        && request.resource.data.isMarketplaceOrder == true
+        && request.resource.data.status in ['pendiente', 'pendiente de recoger pickup']
+        && request.resource.data.quantity is number && request.resource.data.quantity > 0
+        && request.resource.data.basePrice is number && request.resource.data.basePrice >= 0
+        && request.resource.data.deliveryFee is number && request.resource.data.deliveryFee >= 0
+        && request.resource.data.deliveryPayment == 0
+        && request.resource.data.isPaidToOffice == false
+        && request.resource.data.totalToCollect is number
+        && (request.resource.data.paymentMethod in ['COD', 'contra entrega']
+          ? request.resource.data.totalToCollect == request.resource.data.basePrice + request.resource.data.deliveryFee
+          : request.resource.data.totalToCollect == 0);
+    }
+
+    function validGuestTransaction(transactionId) {
+      return isGuest()
+        && request.resource.data.id == transactionId
+        && request.resource.data.createdByUid == request.auth.uid
+        && request.resource.data.isMarketplaceOrder == true
+        && request.resource.data.status == 'pendiente'
+        && request.resource.data.quantity is number && request.resource.data.quantity > 0
+        && request.resource.data.basePrice is number && request.resource.data.basePrice >= 0
+        && request.resource.data.shippingFee is number && request.resource.data.shippingFee >= 0
+        && request.resource.data.total == request.resource.data.basePrice + request.resource.data.shippingFee
+        && request.resource.data.trackingNumber is string;
+    }
+
     function isSuperAdmin() {
-      return isSignedIn() && (
+      return isRegisteredUser() && (
         request.auth.token.email == 'martin.tavarez.gomez@gmail.com' ||
         request.auth.token.email == 'sanpimarkeplace@gmail.com' ||
         request.auth.token.email == 'sanpimarketplace@gmail.com' ||
@@ -17,7 +56,7 @@ service cloud.firestore {
 
     function isAdmin() {
       return isSuperAdmin() || (
-        isSignedIn() && (
+        isRegisteredUser() && (
           (exists(/databases/$(database)/documents/user_role_assignments/$(request.auth.uid)) &&
            get(/databases/$(database)/documents/user_role_assignments/$(request.auth.uid)).data.role == 'admin') ||
           (request.auth.token.email != null &&
@@ -27,8 +66,16 @@ service cloud.firestore {
       );
     }
 
+    function isFulfillment() {
+      return isRegisteredUser() && (
+        request.auth.token.get('role', '') == 'fulfillment' ||
+        (exists(/databases/$(database)/documents/user_role_assignments/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/user_role_assignments/$(request.auth.uid)).data.role == 'fulfillment')
+      );
+    }
+
     function isOwner(userId) {
-      return isSignedIn() && (
+      return isRegisteredUser() && (
         request.auth.uid == userId ||
         (request.auth.token.email != null && request.auth.token.email == userId)
       );
@@ -37,32 +84,39 @@ service cloud.firestore {
     // Stores: Public catalog reading, partner/admin updates
     match /stores/{storeId} {
       allow read: if true;
-      allow create: if isSignedIn();
-      allow update, delete: if isAdmin() || (isSignedIn() && (resource.data.ownerEmail == request.auth.token.email || resource.data.ownerId == request.auth.uid));
+      allow create: if isRegisteredUser();
+      allow update, delete: if isAdmin() || (isRegisteredUser() && (resource.data.ownerEmail == request.auth.token.email || resource.data.ownerId == request.auth.uid));
     }
 
     // Articles / Products: Public reading, partner/admin creation and edits
     match /articles/{articleId} {
       allow read: if true;
-      allow create, update, delete: if isSignedIn();
+      allow create, update, delete: if isRegisteredUser();
     }
 
     // Deliveries & Logistics
     match /deliveries/{deliveryId} {
-      allow read: if true;
-      allow create, update, delete: if isSignedIn();
+      allow get: if true;
+      allow list: if isRegisteredUser();
+      allow create: if isRegisteredUser() || validGuestDelivery(deliveryId);
+      allow update: if isRegisteredUser() || (isGuest()
+        && resource.data.createdByUid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'sachaPackResponse', 'sachaPackStatus', 'sachaPackDispatchedAt'
+        ]));
+      allow delete: if isAdmin() || isFulfillment();
     }
 
     // Transactions / Ledger
     match /transactions/{transactionId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+      allow read: if isRegisteredUser();
+      allow create: if isRegisteredUser() || validGuestTransaction(transactionId);
+      allow update, delete: if isRegisteredUser();
     }
 
     // Subscriptions for partner stores
     match /marketplace_subscriptions/{subId} {
-      allow read: if isSignedIn();
-      allow create: if true;
+      allow read, create: if isRegisteredUser();
       allow update, delete: if isAdmin();
     }
 
@@ -73,24 +127,39 @@ service cloud.firestore {
 
     // User Profiles
     match /users/{userId} {
-      allow read: if isSignedIn();
+      allow read: if isRegisteredUser();
       allow write: if isAdmin() || isOwner(userId);
     }
 
     match /marketplace_users/{userId} {
-      allow read: if isSignedIn();
+      allow read: if isRegisteredUser();
       allow write: if isAdmin() || isOwner(userId);
     }
 
     // Persistent Role Assignments: Read by user/admin, managed by admins
     match /user_role_assignments/{assignmentId} {
-      allow read: if isSignedIn();
+      allow read: if isRegisteredUser();
       allow write: if isAdmin();
     }
 
+    // Webhook signing keys are accessible only through the App Hosting server.
+    match /carrier_webhook_credentials/{providerId} {
+      allow read, write: if false;
+    }
+
     // Catch-all for authenticated operations across other app modules
-    match /{document=**} {
-      allow read, write: if isSignedIn();
+    match /{legacyCollection}/{legacyDoc} {
+      allow read, write: if isRegisteredUser()
+        && legacyCollection != 'stores'
+        && legacyCollection != 'articles'
+        && legacyCollection != 'deliveries'
+        && legacyCollection != 'transactions'
+        && legacyCollection != 'carrier_webhook_credentials'
+        && legacyCollection != 'marketplace_subscriptions'
+        && legacyCollection != 'expenses'
+        && legacyCollection != 'users'
+        && legacyCollection != 'marketplace_users'
+        && legacyCollection != 'user_role_assignments';
     }
   }
 }

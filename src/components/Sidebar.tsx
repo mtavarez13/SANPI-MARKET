@@ -31,11 +31,12 @@ import {
   Calculator
 } from 'lucide-react';
 import { UserProfile } from '../types';
+import { canViewOrders } from '../lib/orderVisibility';
 import { isSuperAdmin } from '../lib/authService';
 
 export interface SidebarProps {
-  currentView: 'explore' | 'catalogs' | 'dropship' | 'landing_page' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting';
-  setCurrentView: (view: 'explore' | 'catalogs' | 'dropship' | 'landing_page' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting') => void;
+  currentView: 'explore' | 'catalogs' | 'dropship' | 'landing_page' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting' | 'orders' | 'featured';
+  setCurrentView: (view: 'explore' | 'catalogs' | 'dropship' | 'landing_page' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting' | 'orders' | 'featured') => void;
   adminInitialTab?: string;
   setAdminInitialTab?: (tab: 'users' | 'subs' | 'stores' | 'referrals' | 'dropshippers' | 'landing_pages' | 'config' | 'finance' | 'expenses' | 'map' | 'plans' | 'branding') => void;
   currentUser: UserProfile | null;
@@ -83,7 +84,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     : (currentUser?.role || 'customer');
 
   const handleNav = (
-    view: 'explore' | 'catalogs' | 'dropship' | 'landing_page' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting',
+    view: 'explore' | 'catalogs' | 'dropship' | 'landing_page' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting' | 'orders' | 'featured',
     adminTab?: 'users' | 'subs' | 'stores' | 'referrals' | 'dropshippers' | 'landing_pages' | 'config' | 'finance' | 'expenses' | 'map' | 'plans' | 'branding'
   ) => {
     if (view === 'admin' && adminTab && setAdminInitialTab) {
@@ -111,16 +112,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       );
     }
 
-    if (currentUser?.role === 'admin') {
-      return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-black bg-amber-100 text-amber-900 border border-amber-200">
-          <Crown className="w-3 h-3 text-amber-600" />
-          <span>Administrador</span>
-        </span>
-      );
-    }
-
     switch (currentUser?.role) {
+      case 'admin':
+        return <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-violet-100 text-violet-800 border border-violet-200"><Shield className="w-3 h-3" />Administrador</span>;
       case 'partner':
         return (
           <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
@@ -353,6 +347,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             <div className="space-y-1">
 
+              {canViewOrders(currentUser, isSuper) && <button
+                onClick={() => handleNav('orders')}
+                title={isSuper || currentUser?.role === 'admin' ? 'Todas las órdenes' : 'Mis órdenes'}
+                aria-current={currentView === 'orders' ? 'page' : undefined}
+                className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-xs font-bold transition-all text-left ${currentView === 'orders' ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-700 hover:bg-slate-100'}`}>
+                <Package className="w-5 h-5 shrink-0" />
+                {!isCollapsed && <span>{isSuper || currentUser?.role === 'admin' ? 'Todas las órdenes' : 'Mis órdenes'}</span>}
+              </button>}
               {/* SUPER ADMIN MASTER PANELS */}
               {(isSuper || effectiveRole === 'admin') && (
                 <>
@@ -414,6 +416,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         </span>
                       </div>
                     )}
+                  </button>
+
+                  <button
+                    onClick={() => handleNav('featured')}
+                    aria-current={currentView === 'featured' ? 'page' : undefined}
+                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-bold transition-all text-left ${currentView === 'featured' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-700 hover:bg-slate-100'}`}
+                    title="Seleccionar cuatro productos destacados y su costo publicitario"
+                  >
+                    <Sparkles className="w-4 h-4 shrink-0 text-amber-500" />
+                    {!isCollapsed && <span className="truncate">Publicidad Destacada</span>}
                   </button>
 
                   <button
@@ -483,12 +495,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         ? 'bg-purple-600 text-white shadow-sm shadow-purple-600/30'
                         : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
                     }`}
-                    title="Hub Dropshipping RD"
+                    title="Pimdrop"
                   >
                     <Sparkles className="w-4 h-4 shrink-0 text-purple-500" />
                     {!isCollapsed && (
                       <div className="flex-1 flex items-center justify-between truncate">
-                        <span className="truncate">Hub Dropshipping</span>
+                        <span className="truncate">Pimdrop</span>
                         <span className="text-[9px] bg-purple-100 text-purple-800 font-bold px-1.5 py-0.5 rounded-full ml-1">
                           COD
                         </span>
@@ -584,11 +596,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-600/30'
                         : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
                     }`}
-                    title="Hub Dropshipping RD"
+                    title="Pimdrop"
                   >
                     <Sparkles className="w-4 h-4 shrink-0 text-purple-500" />
                     {!isCollapsed && (
-                      <span className="truncate">Hub Dropshipping</span>
+                      <span className="truncate">Pimdrop</span>
                     )}
                   </button>
 
@@ -624,12 +636,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         ? 'bg-purple-600 text-white shadow-sm shadow-purple-600/30'
                         : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
                     }`}
-                    title="Hub Dropshipping Pro"
+                    title="Pimdrop"
                   >
                     <Sparkles className="w-4 h-4 shrink-0 text-purple-500" />
                     {!isCollapsed && (
                       <div className="flex-1 flex items-center justify-between truncate">
-                        <span className="truncate">Hub Dropshipping</span>
+                        <span className="truncate">Pimdrop</span>
                         <span className="text-[9px] bg-purple-100 text-purple-800 font-bold px-1.5 py-0.5 rounded-full ml-1">
                           Ganancias
                         </span>

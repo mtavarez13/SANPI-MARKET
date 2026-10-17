@@ -383,7 +383,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
                 }`}
               >
                 <Sparkles className="w-3.5 h-3.5 text-purple-600" />
-                <span>Dropshipping RD</span>
+                <span>Pimdrop</span>
               </button>
             )}
           </div>

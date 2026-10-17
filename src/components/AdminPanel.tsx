@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Expense, MarketplaceSubscription, Store, Delivery, Transaction, Article, UserProfile, SachaPackWebhookPayload, SachaPackWebhookResponse, LogisticsProviderConfig, StoreReferralRecord, LogisticsConnectionTestResult } from '../types';
 import { sanpiManager } from '../lib/storeManager';
 import { generateSanpiExecutivePdfReport } from '../lib/pdfReportGenerator';
-import { MASTER_SECURITY_KEY } from '../lib/firebase';
+import { MASTER_SECURITY_KEY, auth } from '../lib/firebase';
 import { isSuperAdmin } from '../lib/authService';
 import { RDMap } from './RDMap';
 import {
@@ -10,7 +10,6 @@ import {
   DEFAULT_SACHA_PACK_STORE_ID,
   DEFAULT_SACHA_PACK_API_KEY,
   DEFAULT_SACHA_PACK_JSON_TEMPLATE,
-  DEFAULT_SANPI_INBOUND_WEBHOOK_SECRET,
   getSampleSachaPackPayload,
   populateJsonTemplate,
   testLogisticsConnection
@@ -116,7 +115,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onNavigateToAccounting
 }) => {
   const isMartinSuperAdmin = isSuperAdmin(currentUser?.email);
-  const isPlatformAdmin = isMartinSuperAdmin || currentUser?.role === 'admin';
   const [activeTab, setActiveTab] = useState<'users' | 'subs' | 'stores' | 'referrals' | 'dropshippers' | 'landing_pages' | 'config' | 'finance' | 'expenses' | 'map' | 'plans' | 'branding'>(initialTab);
   
   useEffect(() => {
@@ -125,13 +123,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   }, [initialTab]);
 
-  const [masterUnlocked, setMasterUnlocked] = useState<boolean>(isPlatformAdmin);
-
-  useEffect(() => {
-    if (isPlatformAdmin) {
-      setMasterUnlocked(true);
-    }
-  }, [isPlatformAdmin]);
+  const [masterUnlocked, setMasterUnlocked] = useState<boolean>(isMartinSuperAdmin);
   const [keyInput, setKeyInput] = useState<string>('');
   const [showKeyModal, setShowKeyModal] = useState<boolean>(false);
 
@@ -152,6 +144,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [editingProvider, setEditingProvider] = useState<LogisticsProviderConfig | null>(null);
   const [isCreatingProvider, setIsCreatingProvider] = useState<boolean>(false);
   const [showApiKeyInModal, setShowApiKeyInModal] = useState<boolean>(false);
+  const [generatedWebhookSecret, setGeneratedWebhookSecret] = useState<string | null>(null);
+  const [rotatingWebhookSecret, setRotatingWebhookSecret] = useState(false);
   const [pingingProviderId, setPingingProviderId] = useState<string | null>(null);
   const [modalPingTesting, setModalPingTesting] = useState<boolean>(false);
   const [modalPingResult, setModalPingResult] = useState<LogisticsConnectionTestResult | null>(null);
@@ -184,7 +178,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     authType: 'x-api-key',
     customHeaderName: 'X-Transport-Key',
     trackingUrlTemplate: 'https://sachapack.com/tracking/{{trackingNumber}}',
-    inboundWebhookSecret: DEFAULT_SANPI_INBOUND_WEBHOOK_SECRET,
+    inboundWebhookSecret: '',
     isDefault: false,
     isActive: true,
     websiteUrl: 'https://sachapack.com/',
@@ -206,6 +200,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [syncAllStoresIdInput, setSyncAllStoresIdInput] = useState<string>(DEFAULT_SACHA_PACK_STORE_ID);
   const [isSyncingStoreIds, setIsSyncingStoreIds] = useState<boolean>(false);
   const [resendingDeliveryId, setResendingDeliveryId] = useState<string | null>(null);
+  const [syncingSachaDeliveryId, setSyncingSachaDeliveryId] = useState<string | null>(null);
+  const [restockingDeliveryId, setRestockingDeliveryId] = useState<string | null>(null);
 
   // Editing Store Commission, Referral Program & Logistics Provider Modal State
   const [editingStore, setEditingStore] = useState<Store | null>(null);
@@ -245,7 +241,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const handleUnlockMasterKey = (e: React.FormEvent) => {
     e.preventDefault();
-    if (keyInput.trim() === MASTER_SECURITY_KEY || keyInput.toLowerCase().trim() === 'martin2025' || isPlatformAdmin) {
+    if (keyInput.trim() === MASTER_SECURITY_KEY || keyInput.toLowerCase().trim() === 'martin2025' || isMartinSuperAdmin) {
       setMasterUnlocked(true);
       setShowKeyModal(false);
       setKeyInput('');
@@ -403,6 +399,37 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
+  const handleSyncSachaDelivery = async (trackingNumber: string) => {
+    setSyncingSachaDeliveryId(trackingNumber);
+    try {
+      const response = await fetch('/api/sacha/sync-status', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trackingNumber })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || 'No se pudo consultar a Sacha.');
+      onRefresh();
+      alert(`Estado verificado en Sacha: ${result.status}.`);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'No se pudo consultar a Sacha.');
+    } finally {
+      setSyncingSachaDeliveryId(null);
+    }
+  };
+
+  const handleRestockCancelledDelivery = async (deliveryId: string) => {
+    try {
+      setRestockingDeliveryId(deliveryId);
+      const restored = await sanpiManager.restockCancelledDelivery(deliveryId);
+      onRefresh();
+      alert(restored ? 'Inventario repuesto para la orden cancelada.' : 'El inventario de esta orden ya estaba repuesto.');
+    } catch (err: any) {
+      alert('No se pudo reponer el inventario: ' + err.message);
+    } finally {
+      setRestockingDeliveryId(null);
+    }
+  };
+
   const handleSyncAllStoresSachaId = async (customStoreId?: string) => {
     const idToSync = (customStoreId || syncAllStoresIdInput).trim();
     if (!idToSync) {
@@ -423,6 +450,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   // --- LOGISTICS PROVIDER FORM ACTIONS ---
   const openNewProviderModal = () => {
+    setGeneratedWebhookSecret(null);
     setProviderForm({
       name: '',
       code: '',
@@ -434,7 +462,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       authType: 'x-api-key',
       customHeaderName: 'X-Transport-Key',
       trackingUrlTemplate: 'https://rastreo.empresa.com/envio/{{trackingNumber}}',
-      inboundWebhookSecret: DEFAULT_SANPI_INBOUND_WEBHOOK_SECRET,
+      inboundWebhookSecret: '',
       isDefault: logisticsProviders.length === 0,
       isActive: true,
       websiteUrl: '',
@@ -449,6 +477,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   const openEditProviderModal = (provider: LogisticsProviderConfig) => {
+    setGeneratedWebhookSecret(null);
     setEditingProvider(provider);
     setProviderForm({
       name: provider.name,
@@ -461,7 +490,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       authType: (provider.authType as any) || 'x-api-key',
       customHeaderName: provider.customHeaderName || 'X-Transport-Key',
       trackingUrlTemplate: provider.trackingUrlTemplate || '',
-      inboundWebhookSecret: provider.inboundWebhookSecret || DEFAULT_SANPI_INBOUND_WEBHOOK_SECRET,
+      inboundWebhookSecret: '',
       isDefault: !!provider.isDefault,
       isActive: provider.isActive,
       websiteUrl: provider.websiteUrl || '',
@@ -472,6 +501,27 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setModalPingResult(null);
     setShowApiKeyInModal(false);
     setIsCreatingProvider(false);
+  };
+
+  const handleGenerateWebhookSecret = async () => {
+    if (!editingProvider || !auth.currentUser) return;
+    if (!confirm('Se reemplazará la clave anterior. Configura la nueva en Sacha para seguir recibiendo estados.')) return;
+    setRotatingWebhookSecret(true);
+    try {
+      const token = await auth.currentUser.getIdToken();
+      const response = await fetch('/api/carrier/webhook-secret', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-sanpi-id-token': token },
+        body: JSON.stringify({ providerId: editingProvider.id })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.secret) throw new Error(result.message || 'No se pudo generar la clave.');
+      setGeneratedWebhookSecret(result.secret);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'No se pudo generar la clave.');
+    } finally {
+      setRotatingWebhookSecret(false);
+    }
   };
 
   const handleModalPingTest = async () => {
@@ -561,6 +611,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       providerForm.name.toLowerCase().trim().replace(/[^a-z0-9]/g, '_');
     const token = (providerForm.apiKey || providerForm.authToken).trim();
 
+    try {
     if (editingProvider) {
       await sanpiManager.updateLogisticsProvider(editingProvider.id, {
         name: providerForm.name.trim(),
@@ -616,6 +667,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setEditingProvider(null);
     setIsCreatingProvider(false);
     onRefresh();
+    } catch (error: any) {
+      alert(`No se pudo guardar la configuración del transportista en Firestore: ${error?.message || 'Error desconocido'}`);
+    }
   };
 
   const handleDeleteProvider = async (id: string, name: string) => {
@@ -864,17 +918,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <FileText className="w-4 h-4 text-yellow-300" />
               Exportar Reporte Ejecutivo PDF
             </button>
-
-            {/* Download App Hosting ZIP Button */}
-            <a
-              href="/api/download-app-zip"
-              download="sanpi-marketplace-app-hosting.zip"
-              className="bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold px-5 py-2.5 rounded-2xl text-xs transition-all shadow-lg shadow-emerald-600/40 flex items-center gap-2 border border-emerald-300/30 active:scale-95 cursor-pointer no-underline"
-              title="Descargar paquete ZIP listo para Firebase App Hosting"
-            >
-              <Download className="w-4 h-4 text-white" />
-              <span>Descargar ZIP App Hosting</span>
-            </a>
           </div>
         </div>
 
@@ -2962,6 +3005,10 @@ echo $res;`}
                         </td>
                         <td className="p-3.5">
                           <div className="font-black text-slate-900">RD$ {del.totalCodAmount.toLocaleString()}</div>
+                          {del.carrierTotalToCollect !== undefined && del.carrierTotalToCollect !== del.totalCodAmount &&
+                            <div className="mt-1 text-[10px] font-bold text-rose-700" title="El cobro informado por Sacha difiere del total registrado en Sanpi">
+                              Revisar cobro Sacha: RD$ {del.carrierTotalToCollect.toLocaleString()}
+                            </div>}
                           <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-md inline-block mt-0.5 ${
                             del.paymentMethod === 'transferencia'
                               ? 'bg-purple-100 text-purple-900 border border-purple-200'
@@ -2988,6 +3035,9 @@ echo $res;`}
                         </td>
                         <td className="p-3.5">
                           <div className="flex flex-col gap-1 items-start">
+                            <span className={`text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-full ${del.status === 'entregado' ? 'bg-green-100 text-green-800' : del.status === 'en tránsito' ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-800'}`}>
+                              Entrega: {del.status}
+                            </span>
                             <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-full ${
                               sachaStatus === 'enviado'
                                 ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
@@ -3017,6 +3067,13 @@ echo $res;`}
                         </td>
                         <td className="p-3.5 text-center">
                           <div className="flex items-center justify-center gap-1.5">
+                            {del.logisticsProviderId === 'prov_sacha_pack' && <button
+                              type="button"
+                              disabled={syncingSachaDeliveryId === del.trackingNumber}
+                              onClick={() => handleSyncSachaDelivery(del.trackingNumber)}
+                              className="p-2 rounded-xl bg-blue-100 hover:bg-blue-200 text-blue-900 font-bold text-[11px] disabled:opacity-50"
+                              title="Consultar estado actual en Sacha"
+                            >{syncingSachaDeliveryId === del.trackingNumber ? 'Consultando…' : 'Consultar Sacha'}</button>}
                             <button
                               type="button"
                               onClick={() => {
@@ -3045,7 +3102,7 @@ echo $res;`}
 
                             <button
                               type="button"
-                              disabled={resendingDeliveryId === del.id}
+                              disabled={resendingDeliveryId === del.id || del.status === 'cancelado'}
                               onClick={() => handleResendDeliveryToSacha(del.id, del.logisticsProviderId)}
                               className="p-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[11px] flex items-center gap-1 shadow-sm disabled:opacity-50"
                               title="Re-enviar Webhook"
@@ -3057,6 +3114,17 @@ echo $res;`}
                               )}
                               Re-enviar
                             </button>
+                            {del.status === 'cancelado' && (
+                              <button
+                                type="button"
+                                disabled={Boolean(del.inventoryRestockedAt) || restockingDeliveryId === del.id}
+                                onClick={() => handleRestockCancelledDelivery(del.id)}
+                                className="p-2 rounded-xl bg-emerald-100 text-emerald-900 font-bold text-[11px] disabled:opacity-60"
+                                title="Reponer una sola vez el stock de una orden cancelada"
+                              >
+                                {del.inventoryRestockedAt ? 'Stock repuesto' : restockingDeliveryId === del.id ? 'Reponiendo...' : 'Reponer stock'}
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -3826,12 +3894,12 @@ echo $res;`}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="sm:col-span-2 flex items-center gap-2 bg-white p-2.5 rounded-xl border border-amber-200">
                     <span className="font-mono text-[11px] text-slate-800 break-all font-semibold flex-1">
-                      https://sanpimarket.do/api/logistics/webhook-receiver
+                      https://sanpi.com.do/api/logistics/webhook-receiver
                     </span>
                     <button
                       type="button"
                       onClick={() => {
-                        navigator.clipboard.writeText('https://sanpimarket.do/api/logistics/webhook-receiver');
+                        navigator.clipboard.writeText('https://sanpi.com.do/api/logistics/webhook-receiver');
                         alert('URL de Webhook Inbound copiada al portapapeles.');
                       }}
                       className="px-2.5 py-1 bg-amber-100 hover:bg-amber-200 text-amber-950 font-bold rounded-lg text-[10px] flex items-center gap-1 shrink-0"
@@ -3842,15 +3910,20 @@ echo $res;`}
                   </div>
 
                   <div>
-                    <input
-                      type="text"
-                      placeholder="Secret Key Inbound"
-                      value={providerForm.inboundWebhookSecret}
-                      onChange={(e) => setProviderForm({ ...providerForm, inboundWebhookSecret: e.target.value })}
-                      className="w-full bg-white border border-amber-200 rounded-xl px-3 py-2.5 text-slate-900 font-mono text-xs focus:outline-none focus:border-amber-500"
-                    />
+                    <button type="button" disabled={!editingProvider || rotatingWebhookSecret}
+                      onClick={handleGenerateWebhookSecret}
+                      className="w-full bg-amber-700 text-white rounded-xl px-3 py-2.5 text-xs font-bold disabled:opacity-50">
+                      {rotatingWebhookSecret ? 'Generando…' : 'Generar clave de retorno'}
+                    </button>
+                    <p className="text-[10px] text-slate-600 mt-1">Guarda primero el transportista. Entrega esta clave solo a Sacha.</p>
                   </div>
                 </div>
+                {generatedWebhookSecret && <div className="rounded-xl bg-white border border-amber-200 p-3 text-xs">
+                  <p className="font-bold text-amber-900">Copia esta clave ahora; no volverá a mostrarse.</p>
+                  <code className="block break-all my-2">{generatedWebhookSecret}</code>
+                  <button type="button" className="font-bold text-amber-800" onClick={() => navigator.clipboard.writeText(generatedWebhookSecret)}>Copiar clave</button>
+                  <p className="mt-2 text-slate-600">Sacha debe enviar Authorization: Bearer &lt;clave&gt; junto con externalOrderId, status y proofPhotoUrl al confirmar la entrega.</p>
+                </div>}
               </div>
 
               {/* Website, Notes & Active Checkboxes */}

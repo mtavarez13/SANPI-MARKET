@@ -61,8 +61,9 @@ export interface LogisticsInboundWebhookPayload {
   externalOrderId?: string;
   trackingNumber?: string;
   carrierTrackingId?: string;
-  status: 'pendiente' | 'en_transito' | 'entregado' | 'cancelado' | 'reprogramado' | 'intento_fallido';
+  status: DeliveryStatus;
   carrierName?: string;
+  courierId?: string;
   courierName?: string;
   courierPhone?: string;
   location?: {
@@ -234,6 +235,7 @@ export interface Store {
   isActive: boolean;
   createdAt: string;
   // Marketplace & logistics integration fields
+  fulfillmentMode?: 'fulfillment' | 'pickup' | 'shop_point';
   isMarketplace?: boolean;
   marketplaceCommission?: number; // e.g. 0.08, 0.10, 0.15
   ownerEmail?: string;
@@ -349,7 +351,7 @@ export interface DeliveryHistoryItem {
   note: string;
 }
 
-export type DeliveryStatus = 'pendiente' | 'en_transito' | 'entregado' | 'cancelado' | 'reprogramado' | 'intento_fallido';
+export type DeliveryStatus = 'pendiente' | 'pendiente de recoger pickup' | 'en tránsito' | 'entregado' | 'reprogramado' | 'pendiente de retorno' | 'retornado a almacén' | 'cancelado';
 
 export type PaymentMethod = 'COD' | 'transferencia' | 'contra entrega';
 
@@ -386,7 +388,9 @@ export interface BankAccount {
 export interface Delivery {
   id: string;
   trackingNumber: string;
+  createdByUid?: string;
   externalOrderId?: string;
+  carrierTrackingId?: string; // Guía asignada por la empresa de transporte
   customerName: string;
   customerPhone: string;
   customerEmail?: string;
@@ -409,6 +413,25 @@ export interface Delivery {
   storeId: string;
   articleId: string;
   articleName: string;
+  quantity?: number;
+  unitCostAtSale?: number;
+  unitPriceAtSale?: number;
+  deliveryFee?: number;
+  carrierTotalToCollect?: number;
+  carrierDeliveryFee?: number;
+  carrierStatusSource?: 'sacha-pull';
+  carrierStatusUpdatedAt?: string;
+  deliveryPayment?: number;
+  isPaidToOffice?: boolean;
+  storePaidAt?: string;
+  storePaidBy?: string;
+  storePaidAmount?: number;
+  storePaymentReference?: string;
+  driverPaidAt?: string;
+  driverPaidBy?: string;
+  driverPaidAmount?: number;
+  driverPaymentReference?: string;
+  proofPhotoUrl?: string;
   status: DeliveryStatus;
   deliveryPersonId?: string; // ID del repartidor asignado para rastreo GPS
   deliveryPersonName?: string;
@@ -434,12 +457,17 @@ export interface Delivery {
   sachaPackPayload?: SachaPackWebhookPayload;
   sachaPackResponse?: SachaPackWebhookResponse;
   sachaPackDispatchedAt?: string;
+  inventoryRestockedAt?: string;
   createdAt: string;
   history: DeliveryHistoryItem[];
 }
 
 export interface Transaction {
   id: string;
+  createdByUid?: string;
+  storePaidAt?: string;
+  storePaidAmount?: number;
+  storePaymentReference?: string;
   trackingNumber: string;
   storeId: string;
   articleId: string;
@@ -529,6 +557,7 @@ export interface MarketplaceSubscription {
   email: string;
   phone: string;
   province: string;
+  description?: string;
   plan: StorePlan;
   monthlyFee: number; // RD$ 1,500 basic, RD$ 3,000 pro, RD$ 5,000 elite
   status: 'pendiente' | 'aprobado' | 'rechazado';
@@ -542,7 +571,7 @@ export interface MarketplaceSubscription {
 export interface Expense {
   id: string;
   title: string;
-  category: 'logistica' | 'marketing' | 'servidores' | 'nomina' | 'inventario' | 'suscripciones' | 'otros';
+  category: string;
   amount: number;
   date: string;
   createdAt: string;

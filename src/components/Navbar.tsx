@@ -20,12 +20,14 @@ import {
   Calculator
 } from 'lucide-react';
 import { Article, Store as StoreType, UserProfile, SiteThemeConfig } from '../types';
+import { canViewOrders } from '../lib/orderVisibility';
 import { isSuperAdmin, signOutGoogle } from '../lib/authService';
+import { canOpenMarketplaceView, isPublicMarketplaceUser } from '../lib/publicMarketplaceAccess';
 import { RD_PROVINCES, CATEGORIES } from '../data/rdProvinces';
 
 interface NavbarProps {
-  currentView: 'explore' | 'catalogs' | 'dropship' | 'track' | 'partner' | 'admin' | 'pdp' | 'carrier' | 'supplier' | 'accounting';
-  setCurrentView: (view: 'explore' | 'catalogs' | 'dropship' | 'track' | 'partner' | 'admin' | 'pdp' | 'carrier' | 'supplier' | 'accounting') => void;
+  currentView: 'explore' | 'catalogs' | 'dropship' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting' | 'orders' | 'purchases';
+  setCurrentView: (view: 'explore' | 'catalogs' | 'dropship' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting' | 'orders' | 'purchases') => void;
   selectedStoreSlug?: string | null;
   onSelectStoreSlug?: (slug: string | null) => void;
   cartCount: number;
@@ -80,7 +82,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     '🚚 Envíos rápidos en 24-48h a las 32 provincias vía Sacha Pack (Flete Fijo RD$ 350)',
     '💵 Pago Contra Entrega (COD): Pagas 100% en efectivo al recibir tu paquete',
     '✨ Sanpi: La Magia de comprar Online con garantía de satisfacción asegurada',
-    '🚀 Inicia en Dropshipping RD: Vende sin inventario y crea tus Landing Pages'
+    '🚀 Inicia en Pimdrop: vende sin inventario y crea tus Landing Pages'
   ];
   const [currentAnnouncementIdx, setCurrentAnnouncementIdx] = useState(0);
 
@@ -123,7 +125,8 @@ export const Navbar: React.FC<NavbarProps> = ({
       .slice(0, 5);
   }, [articles, searchQuery, searchCategory]);
 
-  const handleNav = (view: 'explore' | 'catalogs' | 'dropship' | 'track' | 'partner' | 'admin' | 'pdp' | 'carrier' | 'supplier' | 'accounting') => {
+  const handleNav = (view: 'explore' | 'catalogs' | 'dropship' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting' | 'orders' | 'purchases') => {
+    if (!canOpenMarketplaceView(currentUser, view, isSuperAdmin(currentUser?.email))) return;
     if (view !== 'catalogs' && onSelectStoreSlug) {
       onSelectStoreSlug(null);
     }
@@ -153,15 +156,13 @@ export const Navbar: React.FC<NavbarProps> = ({
   };
 
   const superAdmin = isSuperAdmin(currentUser?.email);
-  const isAdminUser = superAdmin || currentUser?.role === 'admin';
+  const publicOnly = isPublicMarketplaceUser(currentUser, superAdmin);
 
   const getRoleLabel = () => {
     if (superAdmin) return 'Super Admin';
     if (currentUser?.role === 'admin') return 'Administrador';
     if (currentUser?.role === 'partner') return 'Tienda Oficial';
     if (currentUser?.role === 'dropshipper') return 'Dropshipper Pro';
-    if (currentUser?.role === 'supplier') return 'Proveedor Mayorista';
-    if (currentUser?.role === 'carrier') return 'Transportista';
     return 'Comprador Verificado';
   };
 
@@ -197,7 +198,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
       {/* 2. MAIN HEADER BAR */}
       <div className="max-w-[1600px] xl:max-w-[1720px] 2xl:max-w-[1850px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-10 py-3">
-        <div className="flex items-center justify-between gap-3 sm:gap-6">
+        <div className="flex flex-wrap xl:flex-nowrap items-center justify-between gap-3 sm:gap-6">
           
           {/* Left Brand + Sidebar Toggle */}
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
@@ -227,7 +228,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   alt={config.siteName || 'Sanpi'}
                   referrerPolicy="no-referrer"
                   style={{ height: `${config.logoHeight || 40}px` }}
-                  className="max-w-[180px] object-contain group-hover:scale-105 transition-transform duration-200"
+                  className="max-w-[100px] sm:max-w-[180px] object-contain group-hover:scale-105 transition-transform duration-200"
                 />
               ) : (
                 <div
@@ -244,7 +245,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                     <span className="font-extrabold text-xl tracking-tight text-slate-900">
                       {config?.siteName || 'SANPI'}
                     </span>
-                    <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider border border-slate-200">
+                    <span className="hidden sm:inline text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider border border-slate-200">
                       {config?.siteTagline || 'MARKET'}
                     </span>
                   </div>
@@ -275,11 +276,11 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           {/* Prominent Search Bar with Autocomplete */}
-          <div className="flex-1 max-w-2xl lg:max-w-3xl xl:max-w-4xl mx-1 sm:mx-2 relative" ref={searchContainerRef}>
+          <div className="order-last xl:order-none basis-full xl:basis-auto min-w-0 flex-1 xl:max-w-4xl relative" ref={searchContainerRef}>
             <div className="flex items-center rounded-xl bg-slate-50 border border-slate-200/90 focus-within:border-slate-800 focus-within:bg-white focus-within:ring-2 focus-within:ring-slate-900/10 transition-all overflow-hidden">
               
               {/* Category Select */}
-              <div className="hidden sm:flex items-center bg-slate-100/70 border-r border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 shrink-0 cursor-pointer">
+              <div className="hidden 2xl:flex items-center bg-slate-100/70 border-r border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 shrink-0 cursor-pointer">
                 <select
                   value={searchCategory}
                   onChange={(e) => setSearchCategory(e.target.value)}
@@ -295,7 +296,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
 
               {/* Search Input */}
-              <div className="relative flex-1 flex items-center">
+              <div className="relative min-w-0 flex-1 flex items-center">
                 <Search className="w-4 h-4 absolute left-3.5 text-slate-400 pointer-events-none" />
                 <input
                   type="text"
@@ -303,7 +304,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   onFocus={() => setSearchFocused(true)}
-                  className="w-full bg-transparent pl-10 pr-8 py-2.5 text-xs sm:text-sm text-slate-900 placeholder-slate-400 focus:outline-none font-medium"
+                  className="w-full min-w-0 bg-transparent pl-10 pr-8 py-2.5 text-xs sm:text-sm text-slate-900 placeholder-slate-400 focus:outline-none font-medium"
                 />
                 {searchQuery && (
                   <button
@@ -386,7 +387,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <span className="hidden sm:inline">Ingresar</span>
                 </button>
 
-                <button
+                {!publicOnly && <button
                   onClick={() => {
                     if (onOpenPartnerModal) onOpenPartnerModal();
                     else if (onOpenAuthModal) onOpenAuthModal();
@@ -396,7 +397,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 >
                   <Store className="w-3.5 h-3.5" />
                   <span>Vender en Sanpi</span>
-                </button>
+                </button>}
               </div>
             ) : (
               <div className="relative" ref={dropdownRef}>
@@ -444,8 +445,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                     </div>
 
                     <div className="py-1 space-y-0.5">
+                      {currentUser.role === 'customer' && <button onClick={() => handleNav('purchases')} className="w-full text-left px-3 py-2.5 rounded-xl bg-violet-700 text-white flex items-center gap-2.5 text-sm font-semibold"><ShoppingBag className="w-4 h-4" />Mis compras</button>}
+                      {canViewOrders(currentUser ?? null, superAdmin) && <button onClick={() => handleNav('orders')} className="w-full text-left px-3 py-2.5 rounded-xl bg-slate-900 text-white flex items-center gap-2.5 text-sm font-semibold"><Package className="w-4 h-4" />{superAdmin || currentUser.role === 'admin' ? 'Todas las órdenes' : 'Mis órdenes'}</button>}
                       {/* Customer Address Registration - Direct Access for easy shipping pre-fill */}
-                      {onOpenAddressModal && (
+                      {onOpenAddressModal && !publicOnly && (
                         <button
                           onClick={() => {
                             onOpenAddressModal();
@@ -540,7 +543,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                             className="w-full text-left px-3 py-2 rounded-xl hover:bg-slate-50 text-slate-700 hover:text-slate-900 flex items-center gap-2.5 transition-colors"
                           >
                             <Sparkles className="w-4 h-4 text-purple-500" />
-                            <span>Hub Dropshipping RD</span>
+                            <span>Pimdrop</span>
                           </button>
 
                           <button
@@ -574,7 +577,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                         </>
                       )}
 
-                      {isAdminUser && (
+                      {superAdmin && (
                         <button
                           onClick={() => handleNav('admin')}
                           className="w-full text-left px-3 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 flex items-center gap-2.5 transition-colors font-bold border border-amber-200"
@@ -620,12 +623,12 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
 
             {/* Mobile Menu Toggle */}
-            <button
+            {!publicOnly && <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               className="lg:hidden p-2 rounded-xl bg-slate-100 text-slate-700 hover:text-slate-900 border border-slate-200"
             >
               {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-            </button>
+            </button>}
 
           </div>
         </div>
@@ -668,17 +671,25 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span>Tiendas Oficiales</span>
             </button>
 
-            <button
+            {currentUser?.role === 'customer' && <button
+              onClick={() => handleNav('purchases')}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg transition-colors ${currentView === 'purchases' ? 'bg-white font-bold text-violet-800 shadow-sm' : 'text-slate-700 hover:bg-slate-200/70'}`}
+            >
+              <ShoppingBag className="w-3.5 h-3.5" />
+              <span>Mis compras</span>
+            </button>}
+
+            {!publicOnly && <button
               onClick={() => handleNav('dropship')}
               className={`flex items-center gap-1.5 px-3 py-1 rounded-lg transition-colors ${
                 currentView === 'dropship' ? 'text-slate-900 bg-white font-bold shadow-2xs border border-slate-200' : 'text-slate-700 hover:text-slate-900 hover:bg-slate-200/70'
               }`}
             >
               <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-              <span>Dropshipping RD</span>
-            </button>
+              <span>Pimdrop</span>
+            </button>}
 
-            <button
+            {!publicOnly && <button
               onClick={() => handleNav('supplier')}
               className={`flex items-center gap-1.5 px-3 py-1 rounded-lg transition-colors ${
                 currentView === 'supplier' ? 'text-purple-900 bg-purple-100 font-bold shadow-2xs border border-purple-300' : 'text-purple-700 hover:text-purple-900 hover:bg-purple-50'
@@ -687,9 +698,9 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <Package className="w-3.5 h-3.5 text-purple-600" />
               <span>Proveedores Mayoristas</span>
-            </button>
+            </button>}
 
-            <button
+            {!publicOnly && <button
               onClick={() => handleNav('carrier')}
               className={`flex items-center gap-1.5 px-3 py-1 rounded-lg transition-colors ${
                 currentView === 'carrier' ? 'text-blue-900 bg-blue-100 font-bold shadow-2xs border border-blue-300' : 'text-blue-700 hover:text-blue-900 hover:bg-blue-50'
@@ -698,7 +709,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <Truck className="w-3.5 h-3.5 text-blue-600" />
               <span>Transportistas & API</span>
-            </button>
+            </button>}
 
             <button
               onClick={() => handleNav('track')}
@@ -712,7 +723,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           </div>
 
-          <div className="hidden lg:flex items-center gap-3 shrink-0">
+          {!publicOnly && <div className="hidden lg:flex items-center gap-3 shrink-0">
             <button
               onClick={() => {
                 if (onOpenPartnerModal) onOpenPartnerModal();
@@ -723,7 +734,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span>¿Quieres vender tus productos? Abre tu Tienda</span>
               <ArrowRight className="w-3 h-3" />
             </button>
-          </div>
+          </div>}
         </div>
       </div>
 

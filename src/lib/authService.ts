@@ -4,17 +4,17 @@ import {
   signOut, 
   onAuthStateChanged, 
   User as FirebaseUser,
-  signInAnonymously,
   browserPopupRedirectResolver
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, collection, getDocs, deleteDoc, updateDoc, query, where } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, getDocs, deleteDoc, updateDoc, query, where, onSnapshot, writeBatch } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import { UserProfile, StorePlan, CustomerShippingAddress } from '../types';
 import { sendWelcomeEmail } from './emailService';
 import { sanpiManager } from './storeManager';
 
 export const SUPER_ADMIN_EMAILS = [
-  'martin.tavarez.gomez@gmail.com'
+  'martin.tavarez.gomez@gmail.com',
+  'sanpimarketplace@gmail.com'
 ];
 
 export function isSuperAdmin(email?: string | null): boolean {
@@ -39,46 +39,13 @@ export interface PersistentRoleAssignment {
 
 const ROLE_ASSIGNMENTS_STORAGE_KEY = 'sanpi_role_assignments';
 
-export const DEFAULT_PERSISTENT_ASSIGNMENTS: Record<string, PersistentRoleAssignment> = {
-  'jl3rcrbikzwcdw08nlf8kwlocjb3': {
-    role: 'admin',
-    email: 'sanpimarkeplace@gmail.com',
-    uid: 'jl3RcRbikZWCdw08NLf8kWLOcJB3',
-    assignedBy: 'system_admin',
-    assignedAt: '2026-09-14T00:00:00.000Z'
-  },
-  'jl3RcRbikZWCdw08NLf8kWLOcJB3': {
-    role: 'admin',
-    email: 'sanpimarkeplace@gmail.com',
-    uid: 'jl3RcRbikZWCdw08NLf8kWLOcJB3',
-    assignedBy: 'system_admin',
-    assignedAt: '2026-09-14T00:00:00.000Z'
-  },
-  'sanpimarkeplace@gmail.com': {
-    role: 'admin',
-    email: 'sanpimarkeplace@gmail.com',
-    uid: 'jl3RcRbikZWCdw08NLf8kWLOcJB3',
-    assignedBy: 'system_admin',
-    assignedAt: '2026-09-14T00:00:00.000Z'
-  },
-  'sanpimarketplace@gmail.com': {
-    role: 'admin',
-    email: 'sanpimarketplace@gmail.com',
-    uid: 'jl3RcRbikZWCdw08NLf8kWLOcJB3',
-    assignedBy: 'system_admin',
-    assignedAt: '2026-09-14T00:00:00.000Z'
-  }
-};
-
 export function getAllPersistentRoleAssignments(): Record<string, PersistentRoleAssignment> {
-  const defaults: Record<string, PersistentRoleAssignment> = { ...DEFAULT_PERSISTENT_ASSIGNMENTS };
   try {
     const raw = localStorage.getItem(ROLE_ASSIGNMENTS_STORAGE_KEY);
-    if (!raw) return defaults;
-    const parsed = JSON.parse(raw) as Record<string, PersistentRoleAssignment>;
-    return { ...defaults, ...parsed };
+    if (!raw) return {};
+    return JSON.parse(raw) as Record<string, PersistentRoleAssignment>;
   } catch {
-    return defaults;
+    return {};
   }
 }
 
@@ -88,72 +55,10 @@ export function getPersistentRoleAssignment(email?: string | null, uid?: string 
     const cleanEmail = email.trim().toLowerCase();
     if (assignments[cleanEmail]) return assignments[cleanEmail];
   }
-  if (uid) {
-    if (assignments[uid]) return assignments[uid];
-    const cleanUid = uid.trim().toLowerCase();
-    if (assignments[cleanUid]) return assignments[cleanUid];
+  if (uid && assignments[uid]) {
+    return assignments[uid];
   }
   return null;
-}
-
-/**
- * Asynchronously fetches a persistent role assignment from Firestore or local cache.
- * Ensures that if an admin changes a role, it is never lost across sessions or devices.
- */
-export async function fetchPersistentRoleAssignment(email?: string | null, uid?: string | null): Promise<PersistentRoleAssignment | null> {
-  const local = getPersistentRoleAssignment(email, uid);
-  
-  // Try querying live Firestore collection 'user_role_assignments' to guarantee freshest persistent state
-  try {
-    const cleanEmail = email ? email.trim().toLowerCase() : '';
-    const emailKey = cleanEmail ? cleanEmail.replace(/[^a-zA-Z0-9]/g, '_') : '';
-
-    if (uid) {
-      const snap = await getDoc(doc(db, 'user_role_assignments', uid));
-      if (snap.exists()) {
-        const data = snap.data() as PersistentRoleAssignment;
-        if (data && data.role) {
-          savePersistentRoleAssignment({
-            uid: data.uid || uid,
-            email: data.email || cleanEmail,
-            role: data.role,
-            plan: data.plan,
-            storeName: data.storeName,
-            companyName: data.companyName,
-            apiKey: data.apiKey,
-            isProviderApproved: data.isProviderApproved,
-            assignedBy: data.assignedBy
-          });
-          return data;
-        }
-      }
-    }
-
-    if (emailKey) {
-      const emailSnap = await getDoc(doc(db, 'user_role_assignments', emailKey));
-      if (emailSnap.exists()) {
-        const data = emailSnap.data() as PersistentRoleAssignment;
-        if (data && data.role) {
-          savePersistentRoleAssignment({
-            uid: data.uid || uid || emailKey,
-            email: data.email || cleanEmail,
-            role: data.role,
-            plan: data.plan,
-            storeName: data.storeName,
-            companyName: data.companyName,
-            apiKey: data.apiKey,
-            isProviderApproved: data.isProviderApproved,
-            assignedBy: data.assignedBy
-          });
-          return data;
-        }
-      }
-    }
-  } catch (err) {
-    console.debug('Firestore persistent role assignment lookup notice:', err);
-  }
-
-  return local;
 }
 
 export function savePersistentRoleAssignment(params: {
@@ -185,7 +90,6 @@ export function savePersistentRoleAssignment(params: {
 
   if (params.uid) {
     assignments[params.uid] = record;
-    assignments[params.uid.trim().toLowerCase()] = record;
   }
   if (cleanEmail) {
     assignments[cleanEmail] = record;
@@ -197,18 +101,36 @@ export function savePersistentRoleAssignment(params: {
     console.debug('Failed to write role assignments to localStorage', e);
   }
 
-  // Also persist to Firestore user_role_assignments asynchronously
-  try {
-    if (params.uid) {
-      setDoc(doc(db, 'user_role_assignments', params.uid), record, { merge: true }).catch(() => {});
-    }
-    if (cleanEmail) {
-      const emailDocKey = cleanEmail.replace(/[^a-zA-Z0-9]/g, '_');
-      setDoc(doc(db, 'user_role_assignments', emailDocKey), record, { merge: true }).catch(() => {});
-    }
-  } catch {}
-
   return record;
+}
+
+/** The Firestore assignment is authoritative across browsers and devices. */
+async function loadRoleAssignment(uid: string, email?: string | null): Promise<PersistentRoleAssignment | null> {
+  const cleanEmail = email?.trim().toLowerCase() || '';
+  const keys = [uid, cleanEmail, cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')].filter(Boolean);
+  let newest: PersistentRoleAssignment | null = null;
+  for (const key of [...new Set(keys)]) {
+    const snapshot = await getDoc(doc(db, 'user_role_assignments', key));
+    if (!snapshot.exists()) continue;
+    const assignment = snapshot.data() as PersistentRoleAssignment;
+    if (!assignment.role || (assignment.email && assignment.email !== cleanEmail)) continue;
+    if (!newest || (assignment.assignedAt || '') > (newest.assignedAt || '')) newest = assignment;
+  }
+  if (newest) savePersistentRoleAssignment({ ...newest, uid: newest.uid || uid });
+  return newest;
+}
+
+function applyRoleAssignment(profile: UserProfile, assignment: PersistentRoleAssignment | null): UserProfile {
+  if (!assignment || isSuperAdmin(profile.email)) return profile;
+  return {
+    ...profile,
+    role: assignment.role,
+    plan: assignment.plan ?? profile.plan,
+    storeName: assignment.storeName ?? profile.storeName,
+    companyName: assignment.companyName ?? profile.companyName,
+    apiKey: assignment.apiKey ?? profile.apiKey,
+    isProviderApproved: assignment.isProviderApproved ?? profile.isProviderApproved,
+  };
 }
 
 /**
@@ -379,28 +301,14 @@ export const DEFAULT_REGISTERED_USERS: UserProfile[] = [
     createdAt: '2026-03-01T15:20:00.000Z'
   },
   {
-    uid: 'jl3RcRbikZWCdw08NLf8kWLOcJB3',
-    email: 'sanpimarkeplace@gmail.com',
-    displayName: 'Sanpi Marketplace',
-    companyName: 'Sanpi Marketplace Dominicana',
-    photoURL: 'https://api.dicebear.com/7.x/initials/svg?seed=sanpimarkeplace%40gmail.com',
-    role: 'admin',
-    phone: '809-555-0199',
-    province: 'Distrito Nacional',
-    referralCode: 'SANPI-ADMIN-SP01',
-    welcomeEmailSent: true,
-    createdAt: '2026-09-14T00:00:00.000Z'
-  },
-  {
     uid: 'user_google_sanpimarketplace',
     email: 'sanpimarketplace@gmail.com',
     displayName: 'Sanpi Marketplace',
-    companyName: 'Sanpi Marketplace Dominicana',
     photoURL: 'https://api.dicebear.com/7.x/initials/svg?seed=sanpimarketplace%40gmail.com',
     role: 'admin',
     phone: '809-555-0199',
     province: 'Distrito Nacional',
-    referralCode: 'SANPI-ADMIN-SP02',
+    referralCode: 'SANPI-VIP-SANPIMK01',
     welcomeEmailSent: true,
     createdAt: '2026-09-14T00:00:00.000Z'
   }
@@ -421,7 +329,6 @@ export function cacheRegisteredUserLocally(profile: UserProfile): void {
  * Searches all registered sources (Super Admin, defaults, persistent assignments,
  * local storage registry, and Firestore collections) to determine if a user is registered.
  * Returns the registered UserProfile or null.
- * Enforces any persistent role changes made by administrators so they are never lost.
  */
 export async function findRegisteredUser(emailOrUid?: string | null): Promise<UserProfile | null> {
   if (!emailOrUid) return null;
@@ -430,7 +337,7 @@ export async function findRegisteredUser(emailOrUid?: string | null): Promise<Us
 
   // 1. Super Admin check
   if (isSuperAdmin(clean)) {
-    const adminDefault = DEFAULT_REGISTERED_USERS.find(u => isSuperAdmin(u.email));
+    const adminDefault = DEFAULT_REGISTERED_USERS.find(u => u.email?.trim().toLowerCase() === clean);
     return adminDefault || {
       uid: 'admin_martin_master',
       email: clean,
@@ -445,44 +352,32 @@ export async function findRegisteredUser(emailOrUid?: string | null): Promise<Us
     };
   }
 
-  // Pre-fetch persistent role assignment from cache or Firestore to guarantee freshest assigned role
-  await fetchPersistentRoleAssignment(clean, emailOrUid);
-
-  const applyPersistentRole = (prof: UserProfile): UserProfile => {
-    if (isSuperAdmin(prof.email)) {
-      return { ...prof, role: 'admin' };
-    }
-    const cleanEmail = prof.email ? prof.email.trim().toLowerCase() : '';
-    const persistent = getPersistentRoleAssignment(cleanEmail, prof.uid);
-    if (persistent && persistent.role) {
-      return {
-        ...prof,
-        role: persistent.role,
-        plan: persistent.plan || prof.plan,
-        storeName: persistent.storeName || prof.storeName,
-        companyName: persistent.companyName || prof.companyName,
-        apiKey: persistent.apiKey || prof.apiKey,
-        isProviderApproved: persistent.isProviderApproved !== undefined ? persistent.isProviderApproved : prof.isProviderApproved
-      };
-    }
-    return prof;
-  };
-
   // 2. Check DEFAULT_REGISTERED_USERS
   const inDefaults = DEFAULT_REGISTERED_USERS.find(u => 
-    u.email?.toLowerCase().trim() === clean || u.uid === emailOrUid || (u.uid && u.uid.toLowerCase() === clean)
+    u.email?.toLowerCase().trim() === clean || u.uid === emailOrUid
   );
   if (inDefaults) {
-    return applyPersistentRole(inDefaults);
+    const persistent = getPersistentRoleAssignment(inDefaults.email, inDefaults.uid);
+    if (persistent?.role) {
+      return {
+        ...inDefaults,
+        role: persistent.role,
+        plan: persistent.plan || inDefaults.plan,
+        storeName: persistent.storeName || inDefaults.storeName,
+        companyName: persistent.companyName || inDefaults.companyName,
+        apiKey: persistent.apiKey || inDefaults.apiKey
+      };
+    }
+    return inDefaults;
   }
 
-  // 3. Check persistent role assignments directly
+  // 3. Check persistent role assignments
   const assignments = getAllPersistentRoleAssignments();
   const directAssignment = assignments[clean] || assignments[emailOrUid];
   if (directAssignment && directAssignment.role) {
     const dispName = directAssignment.companyName || directAssignment.storeName || 'Usuario Asignado';
     return {
-      uid: directAssignment.uid || emailOrUid || `user_${Date.now()}`,
+      uid: directAssignment.uid || `user_${Date.now()}`,
       email: directAssignment.email || (clean.includes('@') ? clean : ''),
       displayName: dispName,
       photoURL: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(dispName)}`,
@@ -505,7 +400,7 @@ export async function findRegisteredUser(emailOrUid?: string | null): Promise<Us
       const found = list.find(u => 
         u.email?.toLowerCase().trim() === clean || u.uid === emailOrUid
       );
-      if (found) return applyPersistentRole(found);
+      if (found) return found;
     }
   } catch (err) {
     console.debug('Local registered users cache lookup warning:', err);
@@ -518,13 +413,13 @@ export async function findRegisteredUser(emailOrUid?: string | null): Promise<Us
     if (emailKey) {
       const emailSnap = await getDoc(doc(db, 'marketplace_users', emailKey));
       if (emailSnap.exists()) {
-        const profile = applyPersistentRole(emailSnap.data() as UserProfile);
+        const profile = emailSnap.data() as UserProfile;
         cacheRegisteredUserLocally(profile);
         return profile;
       }
       const uSnap = await getDoc(doc(db, 'users', emailKey));
       if (uSnap.exists()) {
-        const profile = applyPersistentRole(uSnap.data() as UserProfile);
+        const profile = uSnap.data() as UserProfile;
         cacheRegisteredUserLocally(profile);
         return profile;
       }
@@ -532,13 +427,13 @@ export async function findRegisteredUser(emailOrUid?: string | null): Promise<Us
 
     const uidSnap = await getDoc(doc(db, 'marketplace_users', emailOrUid));
     if (uidSnap.exists()) {
-      const profile = applyPersistentRole(uidSnap.data() as UserProfile);
+      const profile = uidSnap.data() as UserProfile;
       cacheRegisteredUserLocally(profile);
       return profile;
     }
     const uidSnap2 = await getDoc(doc(db, 'users', emailOrUid));
     if (uidSnap2.exists()) {
-      const profile = applyPersistentRole(uidSnap2.data() as UserProfile);
+      const profile = uidSnap2.data() as UserProfile;
       cacheRegisteredUserLocally(profile);
       return profile;
     }
@@ -552,7 +447,7 @@ export async function findRegisteredUser(emailOrUid?: string | null): Promise<Us
       const qMarket = query(collection(db, 'marketplace_users'), where('email', '==', clean));
       const qSnap = await getDocs(qMarket);
       if (!qSnap.empty) {
-        const profile = applyPersistentRole(qSnap.docs[0].data() as UserProfile);
+        const profile = qSnap.docs[0].data() as UserProfile;
         cacheRegisteredUserLocally(profile);
         return profile;
       }
@@ -562,7 +457,7 @@ export async function findRegisteredUser(emailOrUid?: string | null): Promise<Us
       const qUsers = query(collection(db, 'users'), where('email', '==', clean));
       const qUsersSnap = await getDocs(qUsers);
       if (!qUsersSnap.empty) {
-        const profile = applyPersistentRole(qUsersSnap.docs[0].data() as UserProfile);
+        const profile = qUsersSnap.docs[0].data() as UserProfile;
         cacheRegisteredUserLocally(profile);
         return profile;
       }
@@ -574,7 +469,7 @@ export async function findRegisteredUser(emailOrUid?: string | null): Promise<Us
       if (!qStoresSnap.empty) {
         const storeData = qStoresSnap.docs[0].data();
         const dispName = storeData.ownerName || storeData.name || 'Socio Tienda';
-        const profile: UserProfile = applyPersistentRole({
+        const profile: UserProfile = {
           uid: storeData.ownerId || `partner_${qStoresSnap.docs[0].id}`,
           email: clean,
           displayName: dispName,
@@ -584,7 +479,7 @@ export async function findRegisteredUser(emailOrUid?: string | null): Promise<Us
           phone: storeData.phone || '809-000-0000',
           province: storeData.province || 'Distrito Nacional',
           createdAt: storeData.createdAt || new Date().toISOString()
-        });
+        };
         cacheRegisteredUserLocally(profile);
         return profile;
       }
@@ -596,7 +491,7 @@ export async function findRegisteredUser(emailOrUid?: string | null): Promise<Us
       if (!qSubsSnap.empty) {
         const subData = qSubsSnap.docs[0].data();
         const dispName = subData.ownerName || subData.storeName || 'Socio Tienda';
-        const profile: UserProfile = applyPersistentRole({
+        const profile: UserProfile = {
           uid: `sub_${qSubsSnap.docs[0].id}`,
           email: clean,
           displayName: dispName,
@@ -607,7 +502,7 @@ export async function findRegisteredUser(emailOrUid?: string | null): Promise<Us
           province: subData.province || 'Distrito Nacional',
           plan: subData.plan || 'pro',
           createdAt: subData.requestedAt || new Date().toISOString()
-        });
+        };
         cacheRegisteredUserLocally(profile);
         return profile;
       }
@@ -672,7 +567,7 @@ export async function signInWithGoogle(registrationOptions?: {
     }
     
     // Check if Super Admin assigned a permanent role to this user
-    const persistentAssignment = getPersistentRoleAssignment(fbUser.email, fbUser.uid);
+    const persistentAssignment = await loadRoleAssignment(fbUser.uid, fbUser.email).catch(() => null);
     const selectedRole = isUserAdmin 
       ? 'admin' 
       : (persistentAssignment?.role || existingRegisteredUser?.role || registrationOptions?.role || 'customer');
@@ -777,8 +672,6 @@ export async function signOutGoogle(): Promise<void> {
   try {
     await signOut(auth);
     localStorage.removeItem('sanpi_auth_user');
-    // Restore anonymous auth for safe marketplace public reading
-    await signInAnonymously(auth).catch(() => {});
   } catch (err) {
     console.error('Error signing out:', err);
   }
@@ -789,6 +682,9 @@ export async function signInWithEmailPassword(email: string, _password: string):
     const cleanEmail = email.trim().toLowerCase();
     if (!cleanEmail || !cleanEmail.includes('@')) {
       return { profile: null, error: 'Por favor ingresa un correo electrónico válido.' };
+    }
+    if (isSuperAdmin(cleanEmail)) {
+      return { profile: null, error: 'Las cuentas administradoras deben iniciar sesión con Google.' };
     }
 
     const isAdmin = isSuperAdmin(cleanEmail);
@@ -822,7 +718,7 @@ export async function signInWithEmailPassword(email: string, _password: string):
       detectedProfile.role = 'admin';
     } else if (detectedProfile) {
       // Check if Super Admin assigned a permanent role
-      const persistentAssignment = getPersistentRoleAssignment(cleanEmail, detectedProfile.uid);
+      const persistentAssignment = await loadRoleAssignment(detectedProfile.uid, cleanEmail).catch(() => null);
       if (persistentAssignment && persistentAssignment.role) {
         detectedProfile.role = persistentAssignment.role;
         if (persistentAssignment.plan) detectedProfile.plan = persistentAssignment.plan;
@@ -904,8 +800,10 @@ export async function registerWithEmail(params: {
       return { profile: null, error: 'Por favor ingresa el nombre de tu empresa de transporte o courier.' };
     }
 
-    const isAdmin = isSuperAdmin(cleanEmail) || params.role === 'admin';
-    const effectiveRole = isAdmin ? 'admin' : params.role;
+    if (isSuperAdmin(cleanEmail) || params.role === 'admin') {
+      return { profile: null, error: 'Las cuentas administradoras no pueden crearse desde el registro público. Inicia sesión con Google.' };
+    }
+    const effectiveRole = params.role;
     const effectivePlan = params.role === 'partner' ? (params.plan || 'pro') : undefined;
     const generatedReferralCode = generateUserReferralCode(
       effectiveRole,
@@ -1015,6 +913,9 @@ export function getCurrentStoredUser(): UserProfile | null {
 
     const cleanEmail = profile.email.trim().toLowerCase();
     if (isSuperAdmin(cleanEmail)) {
+      const firebaseUser = auth.currentUser;
+      if (!firebaseUser || firebaseUser.isAnonymous || firebaseUser.email?.trim().toLowerCase() !== cleanEmail ||
+          !firebaseUser.emailVerified || !firebaseUser.providerData.some(provider => provider.providerId === 'google.com')) return null;
       profile.role = 'admin';
     } else {
       // Check if user is registered in synchronous cache sources
@@ -1308,8 +1209,7 @@ export async function updateUserRoleAndProfile(
     merged.role = 'admin';
   }
 
-  // CRITICAL: Permanently record role assignment in local storage and Firestore
-  savePersistentRoleAssignment({
+  const assignment = {
     uid: merged.uid,
     email: merged.email,
     role: merged.role,
@@ -1318,22 +1218,33 @@ export async function updateUserRoleAndProfile(
     companyName: merged.companyName,
     apiKey: merged.apiKey,
     isProviderApproved: merged.isProviderApproved,
-    assignedBy: 'super_admin'
-  });
+    assignedBy: auth.currentUser?.uid || 'admin',
+    assignedAt: new Date().toISOString(),
+  } satisfies PersistentRoleAssignment;
 
-  // Update in Firestore (both marketplace_users and users collections)
-  try {
-    const userDocRef = doc(db, 'marketplace_users', merged.uid);
-    await setDoc(userDocRef, merged, { merge: true });
-    await setDoc(doc(db, 'users', merged.uid), merged, { merge: true });
-    if (merged.email) {
-      const emailKey = merged.email.trim().toLowerCase().replace(/[^a-zA-Z0-9]/g, '_');
-      await setDoc(doc(db, 'marketplace_users', emailKey), merged, { merge: true });
-      await setDoc(doc(db, 'users', emailKey), merged, { merge: true });
-    }
-  } catch (err) {
-    console.warn('Firestore user update error:', err);
+  // Commit profiles and role keys together. A failed remote write must never look successful.
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'marketplace_users', merged.uid), merged, { merge: true });
+  batch.set(doc(db, 'users', merged.uid), merged, { merge: true });
+  batch.set(doc(db, 'user_role_assignments', merged.uid), assignment);
+  if (merged.email) {
+    const cleanEmail = merged.email.trim().toLowerCase();
+    const legacyKey = cleanEmail.replace(/[^a-zA-Z0-9]/g, '_');
+    batch.set(doc(db, 'marketplace_users', legacyKey), merged, { merge: true });
+    batch.set(doc(db, 'users', legacyKey), merged, { merge: true });
+    batch.set(doc(db, 'user_role_assignments', cleanEmail), assignment);
+    batch.set(doc(db, 'user_role_assignments', legacyKey), assignment);
   }
+  const oldEmail = existing.email?.trim().toLowerCase();
+  if (oldEmail && oldEmail !== merged.email?.trim().toLowerCase()) {
+    const oldLegacyKey = oldEmail.replace(/[^a-zA-Z0-9]/g, '_');
+    batch.delete(doc(db, 'user_role_assignments', oldEmail));
+    batch.delete(doc(db, 'user_role_assignments', oldLegacyKey));
+    batch.delete(doc(db, 'marketplace_users', oldLegacyKey));
+    batch.delete(doc(db, 'users', oldLegacyKey));
+  }
+  await batch.commit();
+  savePersistentRoleAssignment({ ...assignment, uid });
 
   // Update in local cache
   const updatedList = currentList.map(u => (u.uid === merged.uid || (u.email && merged.email && u.email.toLowerCase() === merged.email.toLowerCase())) ? merged : u);
@@ -1410,17 +1321,25 @@ export async function createRegisteredUser(
     createdAt: new Date().toISOString()
   };
 
-  try {
-    const emailKey = cleanEmail ? cleanEmail.replace(/[^a-zA-Z0-9]/g, '_') : '';
-    await setDoc(doc(db, 'marketplace_users', uid), newUser, { merge: true });
-    await setDoc(doc(db, 'users', uid), newUser, { merge: true });
-    if (emailKey) {
-      await setDoc(doc(db, 'marketplace_users', emailKey), newUser, { merge: true });
-      await setDoc(doc(db, 'users', emailKey), newUser, { merge: true });
-    }
-  } catch (err) {
-    console.warn('Firestore create user error:', err);
+  const emailKey = cleanEmail ? cleanEmail.replace(/[^a-zA-Z0-9]/g, '_') : '';
+  const assignment: PersistentRoleAssignment = {
+    uid, email: cleanEmail, role, plan: newUser.plan, storeName: newUser.storeName,
+    companyName: newUser.companyName, apiKey: newUser.apiKey,
+    isProviderApproved: newUser.isProviderApproved,
+    assignedBy: auth.currentUser?.uid || 'admin', assignedAt: new Date().toISOString(),
+  };
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'marketplace_users', uid), newUser, { merge: true });
+  batch.set(doc(db, 'users', uid), newUser, { merge: true });
+  batch.set(doc(db, 'user_role_assignments', uid), assignment);
+  if (cleanEmail) {
+    batch.set(doc(db, 'marketplace_users', emailKey), newUser, { merge: true });
+    batch.set(doc(db, 'users', emailKey), newUser, { merge: true });
+    batch.set(doc(db, 'user_role_assignments', cleanEmail), assignment);
+    batch.set(doc(db, 'user_role_assignments', emailKey), assignment);
   }
+  await batch.commit();
+  savePersistentRoleAssignment({ ...assignment, uid });
 
   const allUsers = await fetchAllRegisteredUsers();
   allUsers.unshift(newUser);
@@ -1469,9 +1388,18 @@ export async function deleteRegisteredUser(uid: string, email?: string): Promise
  * to the Firestore backend and local database immediately.
  */
 export function setupGlobalAuthObserver(onUserLoaded?: (user: UserProfile | null) => void) {
-  return onAuthStateChanged(auth, async (fbUser) => {
+  let stopRoleListeners: (() => void)[] = [];
+  const stopAuth = onAuthStateChanged(auth, async (fbUser) => {
+    stopRoleListeners.forEach(stop => stop());
+    stopRoleListeners = [];
     if (fbUser && !fbUser.isAnonymous) {
       const cleanEmail = fbUser.email ? fbUser.email.trim().toLowerCase() : '';
+      if (isSuperAdmin(cleanEmail) && (!fbUser.emailVerified || !fbUser.providerData.some(provider => provider.providerId === 'google.com'))) {
+        await signOut(auth).catch(() => {});
+        localStorage.removeItem('sanpi_auth_user');
+        if (onUserLoaded) onUserLoaded(null);
+        return;
+      }
       const isUserAdmin = isSuperAdmin(cleanEmail);
 
       // Verify whether this user is actually registered in Sanpi
@@ -1485,7 +1413,8 @@ export function setupGlobalAuthObserver(onUserLoaded?: (user: UserProfile | null
         return;
       }
 
-      const persistentAssignment = await fetchPersistentRoleAssignment(cleanEmail, fbUser.uid);
+      const persistentAssignment = await loadRoleAssignment(fbUser.uid, fbUser.email).catch(() => null);
+      if (auth.currentUser?.uid !== fbUser.uid) return;
       const emailKey = fbUser.email ? fbUser.email.trim().toLowerCase().replace(/[^a-zA-Z0-9]/g, '_') : '';
 
       let profile: UserProfile = registeredUser || {
@@ -1501,15 +1430,10 @@ export function setupGlobalAuthObserver(onUserLoaded?: (user: UserProfile | null
         createdAt: new Date().toISOString()
       };
 
+      profile = applyRoleAssignment({ ...profile, uid: fbUser.uid, email: fbUser.email || profile.email }, persistentAssignment);
+
       if (isUserAdmin) {
         profile.role = 'admin';
-      } else if (persistentAssignment?.role) {
-        profile.role = persistentAssignment.role;
-        if (persistentAssignment.plan) profile.plan = persistentAssignment.plan;
-        if (persistentAssignment.storeName) profile.storeName = persistentAssignment.storeName;
-        if (persistentAssignment.companyName) profile.companyName = persistentAssignment.companyName;
-        if (persistentAssignment.apiKey) profile.apiKey = persistentAssignment.apiKey;
-        if (persistentAssignment.isProviderApproved !== undefined) profile.isProviderApproved = persistentAssignment.isProviderApproved;
       }
 
       // Sync to Firestore
@@ -1531,10 +1455,31 @@ export function setupGlobalAuthObserver(onUserLoaded?: (user: UserProfile | null
       } catch {}
 
       if (onUserLoaded) onUserLoaded(profile);
+
+      // Changes made by an administrator reach an already-open session without relogin.
+      let latestAssignedAt = persistentAssignment?.assignedAt || '';
+      const applyLiveAssignment = (snapshot: { exists: () => boolean; data: () => unknown }) => {
+        if (!snapshot.exists() || auth.currentUser?.uid !== fbUser.uid) return;
+        const assignment = snapshot.data() as PersistentRoleAssignment;
+        if (!assignment.role || (assignment.email && assignment.email !== cleanEmail)) return;
+        if ((assignment.assignedAt || '') < latestAssignedAt) return;
+        latestAssignedAt = assignment.assignedAt || latestAssignedAt;
+        const updated = applyRoleAssignment(profile, assignment);
+        if (updated.role === profile.role && updated.plan === profile.plan && updated.storeName === profile.storeName && updated.companyName === profile.companyName) return;
+        profile = updated;
+        savePersistentRoleAssignment({ ...assignment, uid: assignment.uid || fbUser.uid });
+        localStorage.setItem('sanpi_auth_user', JSON.stringify(profile));
+        cacheRegisteredUserLocally(profile);
+        if (onUserLoaded) onUserLoaded(profile);
+      };
+      for (const key of [...new Set([fbUser.uid, cleanEmail].filter(Boolean))]) {
+        stopRoleListeners.push(onSnapshot(doc(db, 'user_role_assignments', key), applyLiveAssignment, error => console.debug('Role update listener:', error)));
+      }
     } else {
       if (onUserLoaded) onUserLoaded(null);
     }
   });
+  return () => { stopAuth(); stopRoleListeners.forEach(stop => stop()); };
 }
 
 /**

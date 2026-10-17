@@ -13,7 +13,7 @@ export interface AccountingIncomeItem {
   platformFee: number;
   shippingFee: number;
   netIncome: number;
-  status: 'entregado' | 'en_transito' | 'pendiente' | 'cancelado';
+  status: 'entregado' | 'en tránsito' | 'pendiente' | 'cancelado';
 }
 
 export interface AccountingExpenseItem {

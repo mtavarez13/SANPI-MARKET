@@ -1,6 +1,55 @@
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
+import firebaseAppletConfig from './firebase-applet-config.json';
+import { readPrivateCarrierConfigs, savePrivateCarrierConfig } from './src/lib/privateCarrierConfig';
+import { commitGuestOrder, GuestCheckoutValidationError, isAllowedGuestCheckoutOrigin, readPublicArticle, readPublicLandingPage, readPublicStore, recordGuestCarrierResult, validateGuestOrder } from './src/lib/guestCheckoutServer';
+import { applyCarrierUpdate, authenticateCarrierWebhook, CarrierStatusError, hasCarrierWebhookSecret, parseCarrierUpdate, rotateCarrierWebhookSecret, syncSachaDelivery } from './src/lib/carrierStatusServer';
+
+const SACHA_WEBHOOK_URL = 'https://sacha--studio-9195671573-fb490.us-east4.hosted.app/api/logistics-webhook';
+const SACHA_ALTERNATE_WEBHOOK_URL = 'https://www.sachapack.com/api/logistics-webhook';
+const isSachaWebhookUrl = (url: string): boolean =>
+  url === SACHA_WEBHOOK_URL || url === SACHA_ALTERNATE_WEBHOOK_URL;
+const SACHA_STORE_ID = 'ds_80NC3boX9Le29wnJe3zO9OJ0cFz1';
+
+async function authorizeSachaDispatch(idToken: string, deliveryId: string, order: any): Promise<boolean> {
+  if (!idToken || !deliveryId || deliveryId.length > 100) return false;
+  const identityResponse = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${firebaseAppletConfig.apiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ idToken }),
+    signal: AbortSignal.timeout(10000)
+  });
+  if (!identityResponse.ok) return false;
+  const identity = await identityResponse.json() as any;
+  const user = identity.users?.[0];
+  if (!user?.localId) return false;
+
+  const documentUrl = `https://firestore.googleapis.com/v1/projects/${firebaseAppletConfig.projectId}/databases/${firebaseAppletConfig.firestoreDatabaseId}/documents/deliveries/${encodeURIComponent(deliveryId)}`;
+  const documentResponse = await fetch(documentUrl, {
+    headers: { Authorization: `Bearer ${idToken}` },
+    signal: AbortSignal.timeout(10000)
+  });
+  if (!documentResponse.ok) return false;
+  const document = await documentResponse.json() as any;
+  const fields = document.fields || {};
+  const isAdmin = ['sanpimarketplace@gmail.com', 'martin.tavarez.gomez@gmail.com'].includes(String(user.email || '').toLowerCase()) && user.emailVerified === true &&
+    user.providerUserInfo?.some((provider: any) => provider.providerId === 'google.com');
+  const ownsOrder = fields.createdByUid?.stringValue === user.localId;
+  const assignedCarrier = fields.deliveryPersonId?.stringValue === user.localId || fields.carrierId?.stringValue === user.localId;
+  if (!isAdmin && !ownsOrder && !assignedCarrier) return false;
+  if (fields.isMarketplaceOrder?.booleanValue !== true) return false;
+  if (fields.externalOrderId?.stringValue !== order.externalOrderId && fields.trackingNumber?.stringValue !== order.externalOrderId) return false;
+  if (!isAdmin) {
+    if (fields.customerName?.stringValue !== order.customer.name ||
+        fields.customerPhone?.stringValue?.replace(/[^0-9]/g, '') !== order.customer.phone.replace(/[^0-9]/g, '') ||
+        fields.address?.stringValue !== order.customer.address ||
+        fields.province?.stringValue !== order.customer.province) return false;
+    const total = order.items.reduce((sum: number, item: any) => sum + Number(item.quantity) * Number(item.price), 0);
+    if (Math.abs(total - Number(fields.basePrice?.doubleValue ?? fields.basePrice?.integerValue ?? 0)) > 0.01) return false;
+  }
+  return true;
+}
 
 // Prevent process crashes caused by broken pipes (EPIPE) on stdout/stderr
 process.stdout.on('error', (err: any) => {
@@ -25,6 +74,7 @@ process.on('unhandledRejection', (reason) => {
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
+  app.set('trust proxy', 1);
 
   // Middleware for JSON parsing with ample limit
   app.use(express.json({ limit: '10mb' }));
@@ -35,14 +85,177 @@ async function startServer() {
     res.json({ status: 'ok', time: new Date().toISOString() });
   });
 
-  // Direct download endpoint for the App Hosting ZIP package
-  app.get('/api/download-app-zip', (req, res) => {
-    const zipPath = path.join(process.cwd(), 'sanpi-marketplace-app-hosting.zip');
-    res.download(zipPath, 'sanpi-marketplace-app-hosting.zip', (err) => {
-      if (err && !res.headersSent) {
-        res.status(404).json({ error: 'ZIP package not found or could not be served' });
+  const guestOrderAttempts = new Map<string, { count: number; resetAt: number }>();
+  app.post('/api/checkout/guest', async (req, res) => {
+    if (!isAllowedGuestCheckoutOrigin(req.get('origin'), req.get('host'))) {
+      return res.status(403).json({ success: false, message: 'Origen de compra inválido.' });
+    }
+    const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
+    const now = Date.now();
+    const attempts = guestOrderAttempts.get(clientIp);
+    const rate = !attempts || attempts.resetAt < now ? { count: 1, resetAt: now + 60_000 } : { ...attempts, count: attempts.count + 1 };
+    guestOrderAttempts.set(clientIp, rate);
+    if (rate.count > 5) return res.status(429).json({ success: false, message: 'Demasiados intentos. Espera un minuto.' });
+
+    try {
+      const delivery = req.body?.delivery;
+      const transaction = req.body?.transaction;
+      if (!delivery || !transaction || JSON.stringify(req.body).length > 30000) {
+        return res.status(400).json({ success: false, message: 'Datos de compra inválidos.' });
       }
+      const article = await readPublicArticle(String(delivery.articleId || ''));
+      if (!article) return res.status(400).json({ success: false, message: 'Artículo no disponible.' });
+      const store = await readPublicStore(String(delivery.storeId || ''));
+      if (!store) return res.status(400).json({ success: false, message: 'Tienda no disponible.' });
+      const landingPage = delivery.sourceType === 'landing_page' ? await readPublicLandingPage(String(delivery.landingPageSlug || '')) : null;
+      const validationError = validateGuestOrder(delivery, transaction, article, store, landingPage);
+      if (validationError) return res.status(400).json({ success: false, message: validationError });
+      const expectedProviderId = String(store.logisticsProviderId || 'prov_sacha_pack');
+      if (delivery.logisticsProviderId !== expectedProviderId) {
+        return res.status(400).json({ success: false, message: 'Transportista no corresponde a la tienda.' });
+      }
+
+      await commitGuestOrder(delivery, transaction);
+
+      let sachaPackResponse: Record<string, unknown> = {
+        success: false,
+        message: 'Orden registrada; pendiente de despacho al transportista.'
+      };
+      try {
+        const providerId = expectedProviderId;
+        const config = (await readPrivateCarrierConfigs())[providerId];
+        const endpointUrl = config?.endpointUrl || (providerId === 'prov_sacha_pack' ? SACHA_WEBHOOK_URL : '');
+        if (endpointUrl) {
+          const endpoint = new URL(endpointUrl);
+          if (endpoint.protocol !== 'https:') throw new Error('Endpoint del transportista inválido.');
+          const payload = {
+            storeId: config?.storeId || SACHA_STORE_ID,
+            externalOrderId: delivery.trackingNumber,
+            items: [{
+              barcode_imei: String(article?.barcode_imei || delivery.barcode_imei || '1234567890'),
+              quantity: delivery.quantity,
+              price: article?.price,
+              name: article?.name
+            }],
+            customer: {
+              name: delivery.customerName,
+              phone: delivery.customerPhone,
+              address: delivery.address,
+              province: delivery.province,
+              municipality: delivery.municipality || delivery.city
+            },
+            paymentMethod: 'COD'
+          };
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(config?.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {})
+            },
+            body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(12000)
+          });
+          const carrierResult = await response.json().catch(() => ({})) as Record<string, unknown>;
+          sachaPackResponse = {
+            success: response.ok && carrierResult.success !== false,
+            status: response.status,
+            message: String(carrierResult.message || (response.ok ? 'Orden recibida por el transportista.' : 'Transportista no aceptó la orden.')),
+            trackingNumber: carrierResult.trackingNumber || carrierResult.trackingId || carrierResult.id,
+            providerId
+          };
+        }
+      } catch (dispatchError) {
+        console.warn('Guest order carrier dispatch:', dispatchError);
+      }
+      try {
+        await recordGuestCarrierResult(delivery.trackingNumber, sachaPackResponse);
+      } catch (recordError) {
+        console.warn('Guest order carrier result:', recordError);
+      }
+      return res.status(201).json({ success: true, trackingNumber: delivery.trackingNumber, sachaPackResponse });
+    } catch (error) {
+      console.error('Guest checkout:', error);
+      if (error instanceof GuestCheckoutValidationError) {
+        return res.status(400).json({ success: false, message: error.message });
+      }
+      return res.status(500).json({ success: false, message: 'No se pudo registrar la orden. Inténtalo de nuevo.' });
+    }
+  });
+
+  const isCarrierConfigAdmin = async (req: express.Request): Promise<boolean> => {
+    const idToken = String(req.headers['x-sanpi-id-token'] || '');
+    if (!idToken) return false;
+    const response = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${firebaseAppletConfig.apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken }),
+      signal: AbortSignal.timeout(10000)
     });
+    if (!response.ok) return false;
+    const identity = await response.json() as any;
+    const user = identity.users?.[0];
+    if (!user?.emailVerified) return false;
+    const email = String(user.email || '').toLowerCase();
+    const verifiedGoogleAdmin = ['sanpimarketplace@gmail.com', 'martin.tavarez.gomez@gmail.com'].includes(email) &&
+      user.providerUserInfo?.some((provider: any) => provider.providerId === 'google.com');
+    let claims: any = {};
+    try { claims = JSON.parse(user.customAttributes || '{}'); } catch {}
+    return Boolean(verifiedGoogleAdmin || claims.role === 'admin');
+  };
+
+  app.get('/api/carrier/config', async (req, res) => {
+    try {
+      if (!await isCarrierConfigAdmin(req)) return res.status(403).json({ success: false, message: 'Solo administradores pueden ver esta configuración.' });
+      const providerId = String(req.query.providerId || '');
+      if (!/^prov_[a-z0-9_-]{1,80}$/i.test(providerId)) return res.status(400).json({ success: false, message: 'Transportista inválido.' });
+      const config = (await readPrivateCarrierConfigs())[providerId] || null;
+      return res.json({ success: true, config });
+    } catch {
+      return res.status(500).json({ success: false, message: 'No se pudo leer la configuración privada.' });
+    }
+  });
+
+  app.put('/api/carrier/config', async (req, res) => {
+    try {
+      if (!await isCarrierConfigAdmin(req)) return res.status(403).json({ success: false, message: 'Solo administradores pueden guardar esta configuración.' });
+      const providerId = String(req.body?.providerId || '');
+      const storeId = String(req.body?.storeId || '').trim();
+      const endpointUrl = String(req.body?.endpointUrl || '').trim();
+      const apiKey = String(req.body?.apiKey || '').trim();
+      if (!/^prov_[a-z0-9_-]{1,80}$/i.test(providerId) || !storeId || storeId.length > 200 || apiKey.length > 2000) {
+        return res.status(400).json({ success: false, message: 'Store ID, API Key o transportista inválido.' });
+      }
+      let endpoint: URL;
+      try { endpoint = new URL(endpointUrl); } catch { return res.status(400).json({ success: false, message: 'Endpoint inválido.' }); }
+      if (endpoint.protocol !== 'https:' || endpoint.username || endpoint.password) {
+        return res.status(400).json({ success: false, message: 'El endpoint debe usar HTTPS y no incluir credenciales en la URL.' });
+      }
+      await savePrivateCarrierConfig(providerId, { storeId, endpointUrl, apiKey });
+      return res.json({ success: true, message: 'Configuración guardada.' });
+    } catch {
+      return res.status(500).json({ success: false, message: 'No se pudo guardar la configuración privada.' });
+    }
+  });
+
+  app.get('/api/carrier/webhook-secret', async (req, res) => {
+    try {
+      if (!await isCarrierConfigAdmin(req)) return res.status(403).json({ success: false });
+      const providerId = String(req.query.providerId || '');
+      res.setHeader('Cache-Control', 'no-store');
+      return res.json({ success: true, configured: await hasCarrierWebhookSecret(providerId) });
+    } catch { return res.status(500).json({ success: false, message: 'No se pudo consultar el webhook.' }); }
+  });
+
+  app.post('/api/carrier/webhook-secret', async (req, res) => {
+    try {
+      if (!await isCarrierConfigAdmin(req)) return res.status(403).json({ success: false });
+      const secret = await rotateCarrierWebhookSecret(String(req.body?.providerId || ''));
+      res.setHeader('Cache-Control', 'no-store');
+      return res.json({ success: true, secret, message: 'Guarda esta clave en Sacha. Solo se mostrará ahora.' });
+    } catch (error) {
+      return res.status(error instanceof CarrierStatusError ? error.statusCode : 500)
+        .json({ success: false, message: error instanceof CarrierStatusError ? error.message : 'No se pudo generar la clave.' });
+    }
   });
 
   // Helper function to build authentication and transport headers
@@ -104,10 +317,10 @@ async function startServer() {
       rawApiKey = temp;
     } else if (rawTargetUrl.startsWith('sk_') || rawTargetUrl.startsWith('sanpi_') || (!rawTargetUrl.includes('://') && rawTargetUrl.length > 25 && !rawTargetUrl.includes('/'))) {
       if (!rawApiKey) rawApiKey = rawTargetUrl;
-      rawTargetUrl = 'https://studio-345939831630.us-central1.run.app/api/logistics-webhook';
+      rawTargetUrl = SACHA_WEBHOOK_URL;
     }
 
-    let targetUrl = rawTargetUrl || 'https://studio-345939831630.us-central1.run.app/api/logistics-webhook';
+    let targetUrl = rawTargetUrl || SACHA_WEBHOOK_URL;
     if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
       if (targetUrl.includes('.')) {
         targetUrl = `https://${targetUrl}`;
@@ -130,7 +343,6 @@ async function startServer() {
       customHeaderName,
       headers
     });
-
     const testPayload = samplePayload || {
       event: 'PING_HANDSHAKE',
       source: 'Sanpi Marketplace RD',
@@ -144,7 +356,7 @@ async function startServer() {
     const timestamp = new Date().toISOString();
 
     console.log(`\n🔍 [Carrier Connection Test] Probando endpoint: ${targetUrl}`);
-    console.log(`🔑 [Carrier Connection Test] Headers:`, JSON.stringify(outgoingHeaders, null, 2));
+    console.log(`🔑 [Carrier Connection Test] Autenticación configurada: ${Boolean(rawApiKey)}`);
 
     try {
       const controller = new AbortController();
@@ -255,8 +467,16 @@ async function startServer() {
       payload
     } = req.body;
 
-    let rawTargetUrl = (endpointUrl || webhookUrl || req.body?.url || '').trim();
-    let rawApiKey = (apiKey || authToken || '').trim();
+    const providerId = String(req.body?.providerId || '');
+    let privateConfig = null as Awaited<ReturnType<typeof readPrivateCarrierConfigs>>[string] | null;
+    if (/^prov_[a-z0-9_-]{1,80}$/i.test(providerId)) {
+      try { privateConfig = (await readPrivateCarrierConfigs())[providerId] || null; } catch {
+        return res.status(503).json({ success: false, message: 'No se pudo leer la configuración privada del transportista.' });
+      }
+    }
+
+    let rawTargetUrl = String(privateConfig?.endpointUrl || endpointUrl || webhookUrl || req.body?.url || '').trim();
+    let rawApiKey = String(privateConfig?.apiKey || apiKey || authToken || '').trim();
 
     // Auto-recovery: If user swapped apiKey and targetUrl
     if ((rawTargetUrl.startsWith('sk_') || rawTargetUrl.startsWith('sanpi_')) && (rawApiKey.startsWith('http://') || rawApiKey.startsWith('https://'))) {
@@ -265,15 +485,15 @@ async function startServer() {
       rawApiKey = temp;
     } else if (rawTargetUrl.startsWith('sk_') || rawTargetUrl.startsWith('sanpi_') || (!rawTargetUrl.includes('://') && rawTargetUrl.length > 25 && !rawTargetUrl.includes('/'))) {
       if (!rawApiKey) rawApiKey = rawTargetUrl;
-      rawTargetUrl = 'https://studio-345939831630.us-central1.run.app/api/logistics-webhook';
+      rawTargetUrl = SACHA_WEBHOOK_URL;
     }
 
-    let targetUrl = rawTargetUrl || 'https://studio-345939831630.us-central1.run.app/api/logistics-webhook';
+    let targetUrl = rawTargetUrl || SACHA_WEBHOOK_URL;
     if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
       if (targetUrl.includes('.')) {
         targetUrl = `https://${targetUrl}`;
       } else {
-        targetUrl = 'https://studio-345939831630.us-central1.run.app/api/logistics-webhook';
+        targetUrl = SACHA_WEBHOOK_URL;
       }
     }
 
@@ -284,7 +504,8 @@ async function startServer() {
       });
     }
 
-    const isSachaPack = targetUrl.includes('sachapack.com');
+    const isSachaPack = req.body?.providerCode === 'sacha_pack' || isSachaWebhookUrl(targetUrl);
+    const requiresVerifiedOrder = isSachaPack || Boolean(privateConfig?.apiKey);
     let sanitizedPayload: any = payload;
 
     // Safely parse JSON string payload if received as string
@@ -294,6 +515,10 @@ async function startServer() {
       } catch {
         // Leave as string if not valid JSON
       }
+    }
+
+    if (privateConfig?.storeId && sanitizedPayload && typeof sanitizedPayload === 'object') {
+      sanitizedPayload.storeId = privateConfig.storeId;
     }
 
     // If payload is object, sanitize placeholder storeId for Sacha Pack requests
@@ -306,20 +531,57 @@ async function startServer() {
           currentStoreId === 'TU_ID_DE_SOCIO' ||
           currentStoreId === 'TU_PARTNER_UID' ||
           currentStoreId === 'TU_STORE_ID' ||
+          currentStoreId === 'sxOzEivG9GP9SvaVuF1nVpQZCOu1' ||
           currentStoreId.startsWith('TU_') ||
           currentStoreId.startsWith('store_') ||
           currentStoreId.startsWith('store-') ||
           currentStoreId.length < 10)
       ) {
-        sanitizedPayload.storeId = 'sxOzEivG9GP9SvaVuF1nVpQZCOu1';
-        console.log(`ℹ️ [Server Carrier Dispatch] StoreId normalizado a Master Partner ID Oficial: sxOzEivG9GP9SvaVuF1nVpQZCOu1`);
+        sanitizedPayload.storeId = SACHA_STORE_ID;
       }
     }
 
-    // Default Sacha Pack API key if missing
-    let resolvedApiKey = apiKey || authToken;
-    if (isSachaPack && (!resolvedApiKey || resolvedApiKey === 'sk_sacha_live_demo_key')) {
-      resolvedApiKey = 'sk_sacha_wcrvnhqagxd86pqpxs1jfikvjq8mqmxt';
+    const resolvedApiKey = isSachaPack
+      ? (rawApiKey || process.env.SACHA_API_KEY || '').trim()
+      : rawApiKey;
+
+    if (requiresVerifiedOrder) {
+      const order = sanitizedPayload;
+      if (!order || typeof order !== 'object' || !order.storeId || !order.externalOrderId ||
+          !Array.isArray(order.items) || order.items.length === 0 ||
+          order.items.some((item: any) => !item.barcode_imei || !item.name || !Number.isFinite(Number(item.quantity)) || Number(item.quantity) <= 0 || !Number.isFinite(Number(item.price)) || Number(item.price) < 0) ||
+          !order.customer?.name || !order.customer?.phone || !order.customer?.address || !order.customer?.province) {
+        return res.status(400).json({ success: false, message: 'Pedido incompleto para Sacha: storeId, externalOrderId, items y customer son obligatorios.' });
+      }
+      try {
+        const authorized = await authorizeSachaDispatch(
+          String(req.headers['x-sanpi-id-token'] || ''),
+          String(req.body.deliveryId || ''),
+          order
+        );
+        if (!authorized) return res.status(403).json({ success: false, message: 'La orden no está verificada para el usuario autenticado.' });
+      } catch {
+        return res.status(503).json({ success: false, message: 'No se pudo verificar la orden en Firebase. Intenta de nuevo.' });
+      }
+      if (!resolvedApiKey) {
+        return res.status(503).json({ success: false, message: 'Falta guardar la API Key del transportista o configurar SACHA_API_KEY en Hostinger.' });
+      }
+      sanitizedPayload = {
+        storeId: order.storeId,
+        externalOrderId: order.externalOrderId,
+        items: order.items.map((item: any) => ({
+          barcode_imei: String(item.barcode_imei),
+          quantity: Number(item.quantity),
+          price: Number(item.price),
+          name: String(item.name)
+        })),
+        customer: {
+          name: String(order.customer.name),
+          phone: String(order.customer.phone),
+          address: String(order.customer.address),
+          province: String(order.customer.province)
+        }
+      };
     }
 
     const outgoingHeaders = buildCarrierHeaders({
@@ -329,10 +591,16 @@ async function startServer() {
       customHeaderName,
       headers
     });
+    if (isSachaPack) {
+      for (const header of Object.keys(outgoingHeaders)) {
+        if (!['content-type', 'accept', 'authorization'].includes(header.toLowerCase())) delete outgoingHeaders[header];
+      }
+      outgoingHeaders.Authorization = `Bearer ${resolvedApiKey}`;
+    }
 
     const timestamp = new Date().toISOString();
     console.log(`\n🚚 [Server Carrier Dispatch] Enviando ${httpMethod} a: ${targetUrl}`);
-    console.log(`🔑 [Server Carrier Dispatch] Headers:`, JSON.stringify(outgoingHeaders, null, 2));
+    console.log(`🔑 [Server Carrier Dispatch] Autenticación configurada: ${Boolean(resolvedApiKey)}`);
     console.log(`📦 [Server Carrier Dispatch] Payload:`, JSON.stringify(sanitizedPayload, null, 2));
 
     try {
@@ -388,7 +656,7 @@ async function startServer() {
       console.log(`📥 [Server Carrier Dispatch] Respuesta remota: HTTP ${response.status}`);
       console.log(`📄 [Server Carrier Dispatch] Data:`, typeof responseData === 'object' ? JSON.stringify(responseData) : responseData);
 
-      let isSuccess = response.ok || response.status === 201;
+      let isSuccess = response.ok && responseData?.success !== false;
       let trackingNumber = (typeof responseData === 'object' && responseData)
         ? (responseData.trackingNumber || responseData.trackingId || responseData.id || responseData.tracking_number || responseData.orderId || responseData.guideNumber)
         : null;
@@ -404,13 +672,13 @@ async function startServer() {
         typeof responseData === 'object' &&
         typeof responseData.error === 'string' &&
         responseData.error.toLowerCase().includes('tienda') &&
-        sanitizedPayload?.storeId !== 'sxOzEivG9GP9SvaVuF1nVpQZCOu1'
+        sanitizedPayload?.storeId !== SACHA_STORE_ID
       ) {
-        console.log(`🔄 [Server Carrier Dispatch] Tienda no registrada detectada. Reintentando automáticamente con Master Store ID (sxOzEivG9GP9SvaVuF1nVpQZCOu1)...`);
+        console.log(`🔄 [Server Carrier Dispatch] Reintentando con el Store ID configurado de Sacha...`);
         try {
           const retryPayload = {
             ...sanitizedPayload,
-            storeId: 'sxOzEivG9GP9SvaVuF1nVpQZCOu1'
+            storeId: SACHA_STORE_ID
           };
           const retryController = new AbortController();
           const retryTimeoutId = setTimeout(() => retryController.abort(), 12000);
@@ -452,7 +720,7 @@ async function startServer() {
 
       if (!isSuccess && responseData && typeof responseData === 'object' && responseData.error) {
         if (typeof responseData.error === 'string' && responseData.error.toLowerCase().includes('tienda')) {
-          explanationMessage = `Sacha Pack API (${response.status}): ${responseData.error} Recomendación: Utiliza el Store ID registrado en Sacha Pack ("sxOzEivG9GP9SvaVuF1nVpQZCOu1") o registra el UID de tu tienda en Sacha Pack.`;
+          explanationMessage = `Sacha Pack API (${response.status}): ${responseData.error}. Verifica el Store ID registrado en Sacha.`;
         }
       }
 
@@ -463,9 +731,9 @@ async function startServer() {
         message: explanationMessage,
         timestamp,
         endpoint: targetUrl,
-        trackingNumber: trackingNumber || (isSuccess ? `SPVS-${Date.now().toString().slice(-7)}` : undefined),
+        trackingNumber: trackingNumber || undefined,
         totalToCollect,
-        sachaTrackingId: trackingNumber || (isSuccess ? `SPVS-${Date.now().toString().slice(-7)}` : undefined),
+        sachaTrackingId: trackingNumber || undefined,
         rawResponse: responseData,
         isSimulated: false
       });
@@ -494,38 +762,37 @@ async function startServer() {
 
   // 3. INBOUND WEBHOOK RECEIVER (Transport Company -> Sanpi)
   // Allows external couriers to push live status updates, GPS tracking, and delivery receipts
-  app.post('/api/logistics/webhook-receiver', (req, res) => {
-    const authHeader = req.headers['authorization'] || req.headers['x-api-key'] || req.headers['x-webhook-secret'] || '';
-    const body = req.body;
-
-    console.log('\n📦 [Inbound Carrier Webhook] Recibida actualización de transporte:', JSON.stringify(body, null, 2));
-
-    const {
-      externalOrderId,
-      trackingNumber,
-      carrierTrackingId,
-      status, // 'pendiente' | 'en_transito' | 'entregado' | 'cancelado' | 'reprogramado' | 'intento_fallido'
-      courierName,
-      courierPhone,
-      location,
-      notes
-    } = body || {};
-
-    if (!externalOrderId && !trackingNumber && !carrierTrackingId) {
-      return res.status(400).json({
-        success: false,
-        error: 'Debe incluir externalOrderId, trackingNumber o carrierTrackingId para identificar la orden.'
-      });
+  app.post('/api/logistics/webhook-receiver', async (req, res) => {
+    try {
+      const update = parseCarrierUpdate(req.body || {});
+      const bearer = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
+      const supplied = bearer || String(req.headers['x-webhook-secret'] || req.headers['x-api-key'] || '').trim();
+      if (!await authenticateCarrierWebhook(update.providerId, supplied))
+        return res.status(401).json({ success: false, message: 'Clave de webhook inválida o sin configurar.' });
+      const result = await applyCarrierUpdate(update);
+      return res.json({ success: true, ...result });
+    } catch (error) {
+      console.error('Inbound carrier update failed:', error instanceof Error ? error.message : error);
+      return res.status(error instanceof CarrierStatusError ? error.statusCode : 500)
+        .json({ success: false, message: error instanceof CarrierStatusError ? error.message : 'No se pudo actualizar la orden.' });
     }
+  });
 
-    return res.status(200).json({
-      success: true,
-      received: true,
-      message: 'Actualización de estado recibida y encolada para sincronización en Sanpi',
-      timestamp: new Date().toISOString(),
-      orderIdentifier: externalOrderId || trackingNumber || carrierTrackingId,
-      newStatus: status || 'en_transito'
-    });
+  const sachaSyncAttempts = new Map<string, { count: number; resetAt: number }>();
+  app.post('/api/sacha/sync-status', async (req, res) => {
+    const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
+    const now = Date.now();
+    const previous = sachaSyncAttempts.get(clientIp);
+    const rate = !previous || previous.resetAt < now ? { count: 1, resetAt: now + 60_000 } : { ...previous, count: previous.count + 1 };
+    sachaSyncAttempts.set(clientIp, rate);
+    if (rate.count > 10) return res.status(429).json({ success: false, message: 'Demasiadas consultas.' });
+    try {
+      const result = await syncSachaDelivery(String(req.body?.trackingNumber || '').trim());
+      return res.json({ success: true, ...result });
+    } catch (error) {
+      return res.status(error instanceof CarrierStatusError ? error.statusCode : 500)
+        .json({ success: false, message: error instanceof CarrierStatusError ? error.message : 'No se pudo consultar a Sacha.' });
+    }
   });
 
   // 4. CARRIER NOTIFY API (Accepts storeId, apiKey, endpointUrl, and order)
@@ -551,7 +818,9 @@ async function startServer() {
       // 1. Extract raw parameters
       let rawEndpoint = (endpointUrl || carrierEndpointUrl || webhookUrl || url || '').trim();
       let rawApiKey = (apiKey || key || token || req.headers['authorization']?.replace(/^Bearer\s+/i, '') || '').trim();
-      const resolvedStoreId = (storeId || req.body?.store_id || 'sxOzEivG9GP9SvaVuF1nVpQZCOu1').trim();
+      const suppliedStoreId = (storeId || req.body?.store_id || '').trim();
+      const resolvedStoreId = !suppliedStoreId || suppliedStoreId === 'sxOzEivG9GP9SvaVuF1nVpQZCOu1'
+        ? SACHA_STORE_ID : suppliedStoreId;
 
       // 2. Intelligent Auto-Recovery: Handle swapped or misplaced credentials / endpoint URLs
       // Case A: Swapped parameters (endpointUrl is sk_... and apiKey is http...)
@@ -564,15 +833,15 @@ async function startServer() {
       // Case B: User passed an API Key in the endpointUrl field (e.g. sk_sacha_q17dqotk57swhxpuytwtdo44vy7irljf)
       else if (rawEndpoint.startsWith('sk_') || rawEndpoint.startsWith('sanpi_') || (!rawEndpoint.includes('://') && rawEndpoint.length > 25 && !rawEndpoint.includes('/'))) {
         console.log(`🔑 [Carrier Notify API] Clave API detectada en endpointUrl (${rawEndpoint.slice(0, 10)}...). Asignando a apiKey y usando webhook oficial.`);
-        if (!rawApiKey || rawApiKey === 'sk_sacha_wcrvnhqagxd86pqpxs1jfikvjq8mqmxt') {
+        if (!rawApiKey) {
           rawApiKey = rawEndpoint;
         }
-        rawEndpoint = 'https://studio-345939831630.us-central1.run.app/api/logistics-webhook';
+        rawEndpoint = SACHA_WEBHOOK_URL;
       }
 
       // Case C: Empty endpoint, fallback to official webhook
       if (!rawEndpoint) {
-        rawEndpoint = 'https://studio-345939831630.us-central1.run.app/api/logistics-webhook';
+        rawEndpoint = SACHA_WEBHOOK_URL;
       }
 
       // Ensure proper protocol
@@ -580,7 +849,7 @@ async function startServer() {
         if (rawEndpoint.includes('.')) {
           rawEndpoint = `https://${rawEndpoint}`;
         } else {
-          rawEndpoint = 'https://studio-345939831630.us-central1.run.app/api/logistics-webhook';
+          rawEndpoint = SACHA_WEBHOOK_URL;
         }
       }
 
@@ -590,13 +859,13 @@ async function startServer() {
         new URL(targetEndpoint);
       } catch {
         console.warn(`⚠️ [Carrier Notify API] URL no parseable "${targetEndpoint}". Usando endpoint oficial por defecto.`);
-        targetEndpoint = 'https://studio-345939831630.us-central1.run.app/api/logistics-webhook';
+        targetEndpoint = SACHA_WEBHOOK_URL;
       }
 
-      let resolvedApiKey = rawApiKey;
-      if (!resolvedApiKey && (targetEndpoint.includes('sachapack.com') || targetEndpoint.includes('studio-345939831630'))) {
-        resolvedApiKey = 'sk_sacha_wcrvnhqagxd86pqpxs1jfikvjq8mqmxt';
+      if (isSachaWebhookUrl(targetEndpoint)) {
+        return res.status(410).json({ success: false, message: 'Envía pedidos de Sacha mediante /api/logistics-dispatch con una orden verificada.' });
       }
+      const resolvedApiKey = rawApiKey;
 
       if (!resolvedStoreId) {
         return res.status(400).json({
@@ -613,6 +882,7 @@ async function startServer() {
         const rawItems = Array.isArray(req.body.items) ? req.body.items : [];
         carrierPayload = {
           storeId: resolvedStoreId,
+          externalOrderId: externalOrderId || req.body.externalOrderId || order?.externalOrderId,
           items: rawItems.map((item: any) => ({
             barcode_imei: String(item.barcode_imei || item.sku || item.id || 'SKU-001'),
             quantity: Number(item.quantity) || 1,
@@ -635,6 +905,7 @@ async function startServer() {
 
         carrierPayload = {
           storeId: resolvedStoreId,
+          externalOrderId: externalOrderId || order.externalOrderId || order.id,
           items: lineItems.length > 0 ? lineItems.map((item: any) => ({
             barcode_imei: String(item.barcode_imei || item.sku || item.barcode || item.id || 'SKU-001'),
             quantity: Number(item.quantity) || 1,
@@ -662,6 +933,7 @@ async function startServer() {
       } else {
         carrierPayload = {
           storeId: resolvedStoreId,
+          externalOrderId,
           items: [
             {
               barcode_imei: 'SKU-001',
@@ -679,9 +951,12 @@ async function startServer() {
         };
       }
 
+      if (isSachaWebhookUrl(targetEndpoint) && !carrierPayload.externalOrderId) {
+        return res.status(400).json({ success: false, message: 'externalOrderId es obligatorio para Sacha.' });
+      }
       console.log(`\n🚚 [Carrier Notify API] Enviando solicitud a transportista: ${targetEndpoint}`);
       console.log(`🏢 Store ID: ${resolvedStoreId}`);
-      console.log(`🔑 API Key: ${resolvedApiKey ? resolvedApiKey.slice(0, 8) + '...' : '(ninguna)'}`);
+      console.log(`🔑 API Key configurada: ${Boolean(resolvedApiKey)}`);
       console.log(`📦 Payload estructurado:`, JSON.stringify(carrierPayload, null, 2));
 
       const startTime = performance.now();
@@ -696,7 +971,7 @@ async function startServer() {
 
       if (resolvedApiKey) {
         requestHeaders['Authorization'] = `Bearer ${resolvedApiKey}`;
-        requestHeaders['x-api-key'] = resolvedApiKey;
+        if (!isSachaWebhookUrl(targetEndpoint)) requestHeaders['x-api-key'] = resolvedApiKey;
       }
 
       const response = await fetch(targetEndpoint, {
@@ -966,7 +1241,7 @@ async function startServer() {
           description: 'Payload enviado por Sanpi al Endpoint de la empresa de transporte cuando un cliente realiza una compra.',
           method: 'POST',
           samplePayload: {
-            storeId: 'sxOzEivG9GP9SvaVuF1nVpQZCOu1',
+            storeId: SACHA_STORE_ID,
             items: [
               {
                 barcode_imei: 'SKU-001',
@@ -985,14 +1260,14 @@ async function startServer() {
         },
         inbound_status_webhook: {
           description: 'Endpoint que la empresa de transporte llama para reportar cambios de estado a Sanpi.',
-          url: '/api/logistics/webhook-receiver',
+          url: 'https://sanpi.com.do/api/logistics/webhook-receiver',
           method: 'POST',
           headers: {
-            'x-api-key': 'SECRET_SANPI_WEBHOOK_KEY',
+            'Authorization': 'Bearer <CLAVE_DE_RETORNO_GENERADA_POR_ADMIN>',
             'Content-Type': 'application/json'
           },
           samplePayload: {
-            externalOrderId: 'ORD-98421',
+            externalOrderId: 'SPSANPI-M-SSDLC-1792205308513-C61033827A',
             carrierTrackingId: 'CARIBE-98421-X',
             status: 'en_transito',
             courierName: 'Carlos Ramírez',

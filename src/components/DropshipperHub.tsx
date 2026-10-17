@@ -116,7 +116,7 @@ export const DropshipperHub: React.FC<DropshipperHubProps> = ({
               <span>Pool Mayorista & Generador de Landing Pages RD</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-              Centro de Dropshipping & Revendedores
+              Pimdrop · Centro de Revendedores
             </h1>
             <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
               Selecciona productos con precio mayorista garantizado, define tu propio margen de ganancia y genera una <strong>Landing Page de Alta Conversión</strong> en 30 segundos con flete nacional fijo (RD$ 350) y cobro COD contra entrega.
