@@ -127,7 +127,7 @@ export const Footer: React.FC<FooterProps> = ({ onNav, onOpenAuth, config, showB
               </li>
               <li className="flex items-center gap-1.5">
                 <MapPin className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                <span>Santo Domingo & 32 Provincias</span>
+                <span>Santo Domingo y Santiago</span>
               </li>
               <li className="flex items-center gap-1.5">
                 <Mail className="w-3.5 h-3.5 text-slate-500 shrink-0" />
