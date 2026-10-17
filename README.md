@@ -15,7 +15,7 @@ npm run dev
 
 ```bash
 npm run lint
-node --experimental-strip-types --test tests/*.test.mjs
+node --import tsx --test tests/*.test.mjs
 npm run build
 npm start
 ```
