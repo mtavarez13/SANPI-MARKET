@@ -243,6 +243,7 @@ export interface Store {
   phone?: string;
   province?: string;
   status?: 'approved' | 'pending' | 'rejected';
+  pickupAddress?: string; // Dirección de origen para etiquetas de envío
   plan?: StorePlan;
   logisticsProviderId?: string; // ID de la empresa de logística configurada
   logisticsProviderName?: string; // Nombre del operador logístico
@@ -413,6 +414,11 @@ export interface Delivery {
   storeId: string;
   articleId: string;
   articleName: string;
+  senderName?: string;
+  senderContactName?: string;
+  senderPhone?: string;
+  senderProvince?: string;
+  senderAddress?: string;
   quantity?: number;
   unitCostAtSale?: number;
   unitPriceAtSale?: number;

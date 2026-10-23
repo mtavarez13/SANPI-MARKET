@@ -108,6 +108,7 @@ export const StoreSettingsModal: React.FC<StoreSettingsModalProps> = ({
   const [whatsapp, setWhatsapp] = useState(store?.contact?.whatsapp || store?.phone || currentUser?.phone || '8096766690');
   const [phone, setPhone] = useState(store?.contact?.phone || store?.phone || currentUser?.phone || '809-676-6690');
   const [province, setProvince] = useState(store?.province || currentUser?.province || 'Distrito Nacional');
+  const [pickupAddress, setPickupAddress] = useState(store?.pickupAddress || currentUser?.address || '');
   const [fulfillmentMode, setFulfillmentMode] = useState<NonNullable<Store['fulfillmentMode']>>(store?.fulfillmentMode || 'fulfillment');
   const [primaryColor, setPrimaryColor] = useState(store?.theme?.primaryColor || '#9333ea');
   const [secondaryColor, setSecondaryColor] = useState(store?.theme?.secondaryColor || '#581c87');
@@ -223,6 +224,7 @@ export const StoreSettingsModal: React.FC<StoreSettingsModalProps> = ({
           bannerUrl,
           coverImageUrl: bannerUrl,
           province,
+          pickupAddress: pickupAddress.trim(),
           fulfillmentMode,
           contact: {
             phone: phone.trim(),
@@ -270,6 +272,7 @@ export const StoreSettingsModal: React.FC<StoreSettingsModalProps> = ({
           },
           phone: phone.trim(),
           province,
+          pickupAddress: pickupAddress.trim(),
           fulfillmentMode,
           rating: 5.0,
           totalReviews: 1,
@@ -651,6 +654,18 @@ export const StoreSettingsModal: React.FC<StoreSettingsModalProps> = ({
           </div>
 
           {/* 7. BRAND COLOR SCHEME */}
+          <label className="block space-y-1.5">
+            <span className="text-xs font-bold text-slate-200">Dirección de origen para etiquetas de envío</span>
+            <input
+              type="text"
+              value={pickupAddress}
+              onChange={(event) => setPickupAddress(event.target.value)}
+              maxLength={200}
+              placeholder="Calle, número, sector y municipio de la tienda"
+              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500"
+            />
+          </label>
+
           <div className="space-y-2 pt-2 border-t border-slate-800">
             <label className="text-xs font-bold text-slate-200 flex items-center gap-2">
               <Palette className="w-4 h-4 text-purple-400" />

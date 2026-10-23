@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Expense, MarketplaceSubscription, Store, Delivery, Transaction, Article, UserProfile, SachaPackWebhookPayload, SachaPackWebhookResponse, LogisticsProviderConfig, StoreReferralRecord, LogisticsConnectionTestResult } from '../types';
 import { sanpiManager } from '../lib/storeManager';
+import { downloadShippingLabel } from '../lib/shippingLabel';
 import { generateSanpiExecutivePdfReport } from '../lib/pdfReportGenerator';
 import { MASTER_SECURITY_KEY, auth } from '../lib/firebase';
 import { isSuperAdmin } from '../lib/authService';
@@ -3067,6 +3068,12 @@ echo $res;`}
                         </td>
                         <td className="p-3.5 text-center">
                           <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => downloadShippingLabel(del, store).catch(error => alert(`No se pudo generar la etiqueta: ${error instanceof Error ? error.message : String(error)}`))}
+                              className="p-2 rounded-xl bg-slate-900 hover:bg-slate-700 text-white font-bold text-[11px] inline-flex items-center gap-1"
+                              title="Descargar etiqueta térmica PDF 4×6"
+                            ><Download className="w-3.5 h-3.5" /> Etiqueta</button>
                             {del.logisticsProviderId === 'prov_sacha_pack' && <button
                               type="button"
                               disabled={syncingSachaDeliveryId === del.trackingNumber}
