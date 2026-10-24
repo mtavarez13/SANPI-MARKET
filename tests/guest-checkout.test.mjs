@@ -13,9 +13,9 @@ test('guest checkout accepts SANPI public domains behind a Hostinger proxy', () 
 const article = { id: 'art_6', storeId: 'store_2', name: 'Producto', price: 1250, costPerItem: 700, stock: 40, status: 'aprobado', isPublic: true };
 const store = { id: 'store_2', ownerEmail: 'seller@example.com', plan: 'basic', fulfillmentMode: 'fulfillment' };
 const delivery = {
-  id: 'SPSANPI-MC-SL-1760000000000-ABCDEF1234',
-  trackingNumber: 'SPSANPI-MC-SL-1760000000000-ABCDEF1234',
-  externalOrderId: 'SPSANPI-MC-SL-1760000000000-ABCDEF1234',
+  id: 'SPSP675743358MT',
+  trackingNumber: 'SPSP675743358MT',
+  externalOrderId: 'SPSP675743358MT',
   createdByUid: 'guest',
   isMarketplaceOrder: true,
   articleId: article.id,

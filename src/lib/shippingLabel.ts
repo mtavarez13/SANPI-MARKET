@@ -1,4 +1,4 @@
-import type { Delivery, Store } from '../types';
+import type { Delivery, SiteThemeConfig, Store } from '../types';
 import { carrierGuideFor } from './trackingAliases';
 
 export const THERMAL_LABEL_MM = { width: 101.6, height: 152.4 } as const;
@@ -17,7 +17,7 @@ export function shippingLabelData(delivery: Delivery, store?: Store) {
   return {
     guide,
     carrierGuide,
-    scanGuide: carrierGuide || guide,
+    scanGuide: guide,
     routeLetter: clean(delivery.province).charAt(0).toUpperCase() || 'RD',
     carrier: sacha ? 'SACHA PACK' : provider.toUpperCase(),
     payment: isCod ? 'CONTRA ENTREGA' : 'PAGADO / TRANSFERENCIA',
@@ -51,7 +51,9 @@ async function browserCodeImage(bcid: 'qrcode' | 'code128', value: string): Prom
   return canvas.toDataURL('image/png');
 }
 
-export async function createShippingLabelPdf(delivery: Delivery, store?: Store, renderCode: LabelCodeRenderer = browserCodeImage) {
+type LabelBranding = Pick<SiteThemeConfig, 'labelSanpiLogoUrl' | 'labelSachaLogoUrl'>;
+
+export async function createShippingLabelPdf(delivery: Delivery, store?: Store, renderCode: LabelCodeRenderer = browserCodeImage, branding?: LabelBranding) {
   const data = shippingLabelData(delivery, store);
   const { default: jsPDF } = await import('jspdf');
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [THERMAL_LABEL_MM.width, THERMAL_LABEL_MM.height], compress: true });
@@ -66,6 +68,17 @@ export async function createShippingLabelPdf(delivery: Delivery, store?: Store, 
     if (wrapped.length > lines && shown.length) shown[shown.length - 1] = `${shown[shown.length - 1].slice(0, -2)}...`;
     doc.text(shown, x, y, { lineHeightFactor: 1.12 });
   };
+  const drawLogo = (source: string | undefined, x: number, y: number, width: number, height: number): boolean => {
+    if (!source || !/^data:image\/(?:png|jpeg);base64,/i.test(source)) return false;
+    try {
+      const image = doc.getImageProperties(source);
+      const ratio = Math.min(width / image.width, height / image.height);
+      doc.addImage(source, image.fileType, x + (width - image.width * ratio) / 2, y + (height - image.height * ratio) / 2, image.width * ratio, image.height * ratio);
+      return true;
+    } catch {
+      return false;
+    }
+  };
 
   doc.setDrawColor(0);
   doc.setTextColor(0);
@@ -79,15 +92,21 @@ export async function createShippingLabelPdf(delivery: Delivery, store?: Store, 
   doc.setFont('helvetica', 'bold'); doc.setFontSize(27);
   doc.text(data.routeLetter, 7, 17);
   value(data.recipientProvince, 6, 23, 19, 2, 6, true);
-  doc.setFontSize(13); doc.text('SANPI', 30, 11);
+  if (!drawLogo(branding?.labelSanpiLogoUrl, 30, 5, 42, 7)) {
+    doc.setFontSize(13); doc.text('SANPI', 30, 11);
+  }
   label('ETIQUETA DE ENVÍO', 30, 15);
   value(data.payment, 30, 21, 42, 1, 9, true);
   value(data.createdAt, 30, 26, 42, 1, 6);
   doc.addImage(await renderCode('qrcode', data.scanGuide), 'PNG', 77, 5.5, 19, 19);
   label('TRANSPORTADORA', 6, 34);
-  value(data.carrier, 6, 41, 48, 1, 12, true);
+  if (!(data.carrier === 'SACHA PACK' && drawLogo(branding?.labelSachaLogoUrl, 6, 35.5, 48, 7))) {
+    value(data.carrier, 6, 41, 48, 1, 12, true);
+  }
   label('GESTIONADO POR', 59, 34);
-  value('SANPI MARKET', 59, 41, 35, 1, 9, true);
+  if (!drawLogo(branding?.labelSanpiLogoUrl, 59, 35.5, 35, 7)) {
+    value('SANPI MARKET', 59, 41, 35, 1, 9, true);
+  }
 
   label('REMITENTE / ORIGEN', 6, 50);
   value(data.senderName, 6, 56, 87, 1, 9, true);
@@ -116,12 +135,12 @@ export async function createShippingLabelPdf(delivery: Delivery, store?: Store, 
   const barcode = await renderCode('code128', data.scanGuide);
   doc.addImage(barcode, 'PNG', 8, 127.5, 85, 11);
   value(data.scanGuide, 5, 143, 91, 1, 6.5, true);
-  if (data.carrierGuide) value(`GUÍA SANPI: ${data.guide}`, 5, 147, 91, 1, 5.5);
+  if (data.carrierGuide && data.carrierGuide !== data.guide) value(`GUÍA TRANSPORTISTA: ${data.carrierGuide}`, 5, 147, 91, 1, 5.5);
   return doc;
 }
 
-export async function downloadShippingLabel(delivery: Delivery, store?: Store) {
-  const pdf = await createShippingLabelPdf(delivery, store);
+export async function downloadShippingLabel(delivery: Delivery, store?: Store, branding?: LabelBranding) {
+  const pdf = await createShippingLabelPdf(delivery, store, browserCodeImage, branding);
   const safeGuide = shippingLabelData(delivery, store).guide.replace(/[^a-z0-9-]/gi, '_');
   pdf.save(`etiqueta-sanpi-${safeGuide}.pdf`);
 }

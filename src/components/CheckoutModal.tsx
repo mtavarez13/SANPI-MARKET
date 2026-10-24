@@ -331,13 +331,13 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               </div>
 
               <div className="flex flex-col sm:flex-row gap-3 pt-2">
-                <button
+                {currentUser && currentUser.role !== 'customer' && <button
                   type="button"
-                  onClick={() => downloadShippingLabel(createdDelivery, sanpiManager.stores.find(store => store.id === createdDelivery.storeId)).catch(error => alert(`No se pudo generar la etiqueta: ${error instanceof Error ? error.message : String(error)}`))}
+                  onClick={() => downloadShippingLabel(createdDelivery, sanpiManager.stores.find(store => store.id === createdDelivery.storeId), sanpiManager.siteConfig).catch(error => alert(`No se pudo generar la etiqueta: ${error instanceof Error ? error.message : String(error)}`))}
                   className="flex-1 bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-xl text-xs transition-colors flex items-center justify-center gap-2"
                 >
                   <Download className="w-4 h-4" /> Etiqueta térmica PDF 4×6
-                </button>
+                </button>}
                 {currentUser?.role === 'customer' && onViewPurchases && <button
                   onClick={onViewPurchases}
                   className="flex-1 bg-purple-700 hover:bg-purple-800 text-white font-bold py-3 rounded-xl text-xs transition-colors flex items-center justify-center gap-2 shadow-sm cursor-pointer"

@@ -3070,7 +3070,7 @@ echo $res;`}
                           <div className="flex items-center justify-center gap-1.5">
                             <button
                               type="button"
-                              onClick={() => downloadShippingLabel(del, store).catch(error => alert(`No se pudo generar la etiqueta: ${error instanceof Error ? error.message : String(error)}`))}
+                              onClick={() => downloadShippingLabel(del, store, sanpiManager.siteConfig).catch(error => alert(`No se pudo generar la etiqueta: ${error instanceof Error ? error.message : String(error)}`))}
                               className="p-2 rounded-xl bg-slate-900 hover:bg-slate-700 text-white font-bold text-[11px] inline-flex items-center gap-1"
                               title="Descargar etiqueta térmica PDF 4×6"
                             ><Download className="w-3.5 h-3.5" /> Etiqueta</button>

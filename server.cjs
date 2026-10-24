@@ -108,7 +108,7 @@ async function readPublicLandingPage(slug) {
 }
 function validateGuestOrder(delivery, transaction, article, store, landingPage) {
   if (!delivery || !transaction || !article) return "Orden o producto inv\xE1lido.";
-  if (!/^SPSANPI-[A-Z0-9-]{8,100}$/.test(String(delivery.trackingNumber || "")) || delivery.id !== delivery.trackingNumber || delivery.externalOrderId !== delivery.trackingNumber || transaction.trackingNumber !== delivery.trackingNumber) return "N\xFAmero de gu\xEDa inv\xE1lido.";
+  if (!/^(?:SPSP\d{9}[A-Z0-9]{2}|SPSANPI-[A-Z0-9-]{8,100})$/.test(String(delivery.trackingNumber || "")) || delivery.id !== delivery.trackingNumber || delivery.externalOrderId !== delivery.trackingNumber || transaction.trackingNumber !== delivery.trackingNumber) return "N\xFAmero de gu\xEDa inv\xE1lido.";
   if (!/^tx_[0-9]{10,20}$/.test(String(transaction.id || ""))) return "Transacci\xF3n inv\xE1lida.";
   if (delivery.createdByUid !== "guest" || transaction.createdByUid !== "guest" || delivery.isMarketplaceOrder !== true || transaction.isMarketplaceOrder !== true) return "Origen de orden inv\xE1lido.";
   if (delivery.articleId !== article.id || transaction.articleId !== article.id || delivery.storeId !== article.storeId || transaction.storeId !== article.storeId) return "Art\xEDculo o tienda inv\xE1lidos.";

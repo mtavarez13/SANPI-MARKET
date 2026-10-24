@@ -48,7 +48,7 @@ export async function readPublicLandingPage(slug: string): Promise<JsonRecord | 
 
 export function validateGuestOrder(delivery: JsonRecord, transaction: JsonRecord, article: JsonRecord, store?: JsonRecord, landingPage?: JsonRecord | null): string | null {
   if (!delivery || !transaction || !article) return 'Orden o producto inválido.';
-  if (!/^SPSANPI-[A-Z0-9-]{8,100}$/.test(String(delivery.trackingNumber || '')) ||
+  if (!/^(?:SPSP\d{9}[A-Z0-9]{2}|SPSANPI-[A-Z0-9-]{8,100})$/.test(String(delivery.trackingNumber || '')) ||
       delivery.id !== delivery.trackingNumber || delivery.externalOrderId !== delivery.trackingNumber ||
       transaction.trackingNumber !== delivery.trackingNumber) return 'Número de guía inválido.';
   if (!/^tx_[0-9]{10,20}$/.test(String(transaction.id || ''))) return 'Transacción inválida.';

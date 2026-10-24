@@ -3,11 +3,11 @@ function initials(value: string, fallback: string): string {
   return (words.map(word => word[0]).join('') || fallback).slice(0, 6);
 }
 
-/** A human-readable store and destination prefix followed by a collision-resistant order suffix. */
-export function createCodTrackingNumber(storeName: string, province: string, municipality: string): string {
-  const storeCode = initials(storeName, 'T');
-  const destinationCode = `${initials(province, 'P').slice(0, 1)}${initials(municipality, 'M')}`;
-  const random = crypto.getRandomValues(new Uint8Array(5));
-  const suffix = Array.from(random, byte => byte.toString(16).padStart(2, '0')).join('').toUpperCase();
-  return `SPSANPI-${storeCode}-${destinationCode}-${Date.now()}-${suffix}`;
+/** Sanpi order guide: SPSP + nine digits + two store initials (for example SPSP675743358MT). */
+export function createCodTrackingNumber(storeName: string, _province: string, _municipality: string): string {
+  const words = storeName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().match(/[A-Z0-9]+/g) || [];
+  const storeCode = (words.length > 1 ? initials(storeName, 'SP') : words[0] || 'SP').padEnd(2, 'P').slice(0, 2);
+  const random = crypto.getRandomValues(new Uint32Array(1))[0];
+  const digits = String(random % 1_000_000_000).padStart(9, '0');
+  return `SPSP${digits}${storeCode}`;
 }

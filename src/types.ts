@@ -614,6 +614,8 @@ export interface SiteThemeConfig {
   siteSlogan: string; // e.g. "La Magia de comprar Online en República Dominicana"
   siteSubtitle?: string;
   logoUrl?: string; // custom logo url or base64 data:image
+  labelSanpiLogoUrl?: string; // logo impreso en la etiqueta térmica
+  labelSachaLogoUrl?: string; // logo de Sacha Pack en la etiqueta térmica
   logoHeight?: number; // px, e.g. 40
   faviconUrl?: string;
 

@@ -118,6 +118,44 @@ export const AdminBrandingManager: React.FC<AdminBrandingManagerProps> = ({
     reader.readAsDataURL(file);
   };
 
+  const handleLabelLogoUpload = async (file: File | undefined, field: 'labelSanpiLogoUrl' | 'labelSachaLogoUrl') => {
+    if (!file) return;
+    setLogoUploadError(null);
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 2 * 1024 * 1024) {
+      setLogoUploadError('Usa un logo PNG, JPG o WebP de hasta 2 MB.');
+      return;
+    }
+    const objectUrl = URL.createObjectURL(file);
+    try {
+      const image = new Image();
+      await new Promise<void>((resolve, reject) => {
+        image.onload = () => resolve();
+        image.onerror = () => reject(new Error('No se pudo leer el logo.'));
+        image.src = objectUrl;
+      });
+      const scale = Math.min(1, 500 / image.width, 200 / image.height);
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(image.width * scale));
+      canvas.height = Math.max(1, Math.round(image.height * scale));
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('No se pudo procesar el logo.');
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      let dataUrl = canvas.toDataURL('image/png');
+      if (dataUrl.length > 180_000) {
+        context.globalCompositeOperation = 'destination-over';
+        context.fillStyle = '#ffffff';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        dataUrl = canvas.toDataURL('image/jpeg', 0.75);
+      }
+      if (dataUrl.length > 180_000) throw new Error('El logo comprimido sigue siendo demasiado grande. Usa una imagen más sencilla.');
+      setFormData(prev => ({ ...prev, [field]: dataUrl }));
+    } catch (error) {
+      setLogoUploadError(error instanceof Error ? error.message : 'No se pudo procesar el logo.');
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  };
+
   // Bank Accounts Management Handlers
   const handleStartAddBank = () => {
     setEditingBankId(null);
@@ -329,7 +367,7 @@ export const AdminBrandingManager: React.FC<AdminBrandingManagerProps> = ({
           }`}
         >
           <ImageIcon className="w-4 h-4" />
-          <span>3. Logo & Emblema</span>
+          <span>3. Logos & Etiqueta 4×6</span>
         </button>
 
         <button
@@ -756,6 +794,28 @@ export const AdminBrandingManager: React.FC<AdminBrandingManagerProps> = ({
       {/* TAB 3: LOGO & EMBLEMA */}
       {activeTab === 'logo' && (
         <div className="space-y-6 animate-fadeIn">
+          <div className="rounded-2xl border border-purple-200 bg-purple-50/50 p-5 space-y-4">
+            <div>
+              <h3 className="font-bold text-slate-900">Logos para etiqueta térmica 4×6</h3>
+              <p className="text-xs text-slate-600 mt-1">Sube los logos de Sanpi y Sacha Pack y guarda la configuración. Si falta alguno, la etiqueta imprimirá su nombre.</p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {([
+                { field: 'labelSanpiLogoUrl', title: 'Sanpi', fallback: 'SANPI MARKET' },
+                { field: 'labelSachaLogoUrl', title: 'Sacha Pack', fallback: 'SACHA PACK' }
+              ] as const).map(({ field, title, fallback }) => (
+                <div key={field} className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+                  <label className="block text-sm font-bold text-slate-800" htmlFor={field}>Logo {title}</label>
+                  <div className="flex h-16 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 p-2">
+                    {formData[field] ? <img src={formData[field]} alt={`Logo ${title}`} className="max-h-full max-w-full object-contain" /> : <span className="font-bold text-slate-700">{fallback}</span>}
+                  </div>
+                  <input id={field} type="file" accept="image/png,image/jpeg,image/webp" onChange={event => void handleLabelLogoUpload(event.target.files?.[0], field)} className="block w-full text-xs text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-purple-100 file:px-3 file:py-2 file:font-semibold file:text-purple-800" />
+                  {formData[field] && <button type="button" onClick={() => setFormData(prev => ({ ...prev, [field]: '' }))} className="text-xs font-semibold text-rose-700">Quitar logo de {title}</button>}
+                </div>
+              ))}
+            </div>
+            {logoUploadError && <p role="alert" className="text-xs font-semibold text-rose-700">{logoUploadError}</p>}
+          </div>
           
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             

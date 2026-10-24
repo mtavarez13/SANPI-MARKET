@@ -4,7 +4,7 @@ import { writeFileSync } from 'node:fs';
 import { createShippingLabelPdf, shippingLabelData, THERMAL_LABEL_MM } from '../src/lib/shippingLabel.ts';
 
 const order = {
-  id: 'SPSANPI-M-SSDLC-123', trackingNumber: 'SPSANPI-M-SSDLC-123',
+  id: 'SPSP675743358MT', trackingNumber: 'SPSP675743358MT',
   carrierTrackingId: 'SACHA-789', customerName: 'Ana Pérez', customerPhone: '8095551234',
   province: 'Monte Cristi', city: 'Las Matas', address: 'Calle Duarte 30',
   articleName: 'Producto A', quantity: 2, paymentMethod: 'COD', totalToCollect: 1890,
@@ -18,7 +18,7 @@ test('thermal label uses exact 4 by 6 inch dimensions and both tracking guides',
   const label = shippingLabelData(order);
   assert.equal(label.guide, order.trackingNumber);
   assert.equal(label.carrierGuide, 'SACHA-789');
-  assert.equal(label.scanGuide, 'SACHA-789');
+  assert.equal(label.scanGuide, 'SPSP675743358MT');
   assert.equal(label.carrier, 'SACHA PACK');
   assert.equal(label.routeLetter, 'M');
   assert.equal(label.senderAddress, 'Calle Sol 5');
@@ -70,5 +70,12 @@ test('PDF renders as one 4 by 6 inch page with scannable guides', async () => {
   assert.ok(Math.abs(pdf.internal.pageSize.getHeight() - 152.4) < 0.01);
   const bytes = Buffer.from(pdf.output('arraybuffer'));
   assert.ok(bytes.length > 3000);
-  if (process.env.SANPI_LABEL_SAMPLE_PDF) writeFileSync(process.env.SANPI_LABEL_SAMPLE_PDF, bytes);
+  const logo = `data:image/png;base64,${Buffer.from(await renderCode('qrcode', 'SANPI')).toString('base64')}`;
+  const brandedPdf = await createShippingLabelPdf(order, undefined, renderCode, {
+    labelSanpiLogoUrl: logo,
+    labelSachaLogoUrl: logo,
+  });
+  assert.equal(brandedPdf.internal.getNumberOfPages(), 1);
+  assert.ok(Buffer.from(brandedPdf.output('arraybuffer')).length > bytes.length);
+  if (process.env.SANPI_LABEL_SAMPLE_PDF) writeFileSync(process.env.SANPI_LABEL_SAMPLE_PDF, Buffer.from(brandedPdf.output('arraybuffer')));
 });

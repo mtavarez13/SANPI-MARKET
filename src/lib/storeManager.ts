@@ -501,15 +501,16 @@ export class SanpiStoreManager {
       updatedAt: new Date().toISOString()
     };
 
-    this.siteConfig = updated;
-    this.saveToLocalStorage();
-    this.notify();
-
     try {
       await setDoc(doc(db, 'site_settings', 'global_theme'), updated);
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'site_settings/global_theme');
+      throw err;
     }
+
+    this.siteConfig = updated;
+    this.saveToLocalStorage();
+    this.notify();
 
     return updated;
   }
@@ -797,10 +798,14 @@ export class SanpiStoreManager {
         this.saveToLocalStorage();
         this.notify();
       } else {
-        const orderBatch = writeBatch(db);
-        orderBatch.set(doc(db, 'transactions', transactionId), newTransaction);
-        orderBatch.set(doc(db, 'deliveries', deliveryId), newDelivery);
-        await orderBatch.commit();
+        await runTransaction(db, async orderTransaction => {
+          const deliveryRef = doc(db, 'deliveries', deliveryId);
+          if ((await orderTransaction.get(deliveryRef)).exists()) {
+            throw new Error('El número de guía ya existe. Intenta confirmar el pedido de nuevo.');
+          }
+          orderTransaction.set(doc(db, 'transactions', transactionId), newTransaction);
+          orderTransaction.set(deliveryRef, newDelivery);
+        });
       }
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `deliveries/${deliveryId}`);
