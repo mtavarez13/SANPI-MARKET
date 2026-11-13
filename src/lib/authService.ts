@@ -568,9 +568,9 @@ export async function signInWithGoogle(registrationOptions?: {
     
     // Check if Super Admin assigned a permanent role to this user
     const persistentAssignment = await loadRoleAssignment(fbUser.uid, fbUser.email).catch(() => null);
-    const selectedRole = isUserAdmin 
-      ? 'admin' 
-      : (persistentAssignment?.role || existingRegisteredUser?.role || registrationOptions?.role || 'customer');
+    const selectedRole = isUserAdmin
+      ? 'admin'
+      : (persistentAssignment?.role || (isRegistrationFlow && registrationOptions?.role) || existingRegisteredUser?.role || 'customer');
     const selectedPlan = persistentAssignment?.plan || existingRegisteredUser?.plan || registrationOptions?.plan || 'pro';
     let isNewUser = false;
 
@@ -603,21 +603,7 @@ export async function signInWithGoogle(registrationOptions?: {
 
     const emailKey = fbUser.email ? fbUser.email.trim().toLowerCase().replace(/[^a-zA-Z0-9]/g, '_') : '';
 
-    if (isRegistrationFlow && !existingRegisteredUser) {
-      isNewUser = true;
-      sendWelcomeEmail({
-        name: profile.displayName || 'Socio Sanpi',
-        email: profile.email || '',
-        role: profile.role,
-        plan: profile.plan,
-        storeName: profile.storeName,
-        referralCode: profile.referralCode || 'SANPI-SOCIO',
-        phone: profile.phone,
-        province: profile.province,
-        referredByCode: profile.referredByCode
-      }).catch(err => console.warn('Welcome email error:', err));
-      profile.welcomeEmailSent = true;
-    }
+    if (isRegistrationFlow && !existingRegisteredUser) isNewUser = true;
 
     try {
       const userDocRef = doc(db, 'marketplace_users', fbUser.uid);
@@ -631,6 +617,36 @@ export async function signInWithGoogle(registrationOptions?: {
       }
     } catch (e) {
       console.warn('Firestore user profile sync warning:', e);
+      if (isRegistrationFlow) {
+        return { user: fbUser, profile: null, error: 'La cuenta Google se creó, pero el perfil no se pudo guardar. Intenta registrarte de nuevo; no se duplicará tu cuenta.' };
+      }
+    }
+
+    if (isRegistrationFlow && selectedRole === 'partner' && profile.storeName?.trim()) {
+      try {
+        const applications = await getDocs(query(collection(db, 'marketplace_subscriptions'), where('email', '==', cleanEmail)));
+        const alreadyApplied = applications.docs.some(item => item.data().storeName?.trim().toLowerCase() === profile.storeName?.trim().toLowerCase());
+        if (!alreadyApplied) {
+          await sanpiManager.addSubscriptionRequest({
+            storeName: profile.storeName.trim(), ownerName: profile.displayName,
+            email: cleanEmail, phone: profile.phone || '809-000-0000',
+            province: profile.province || 'Distrito Nacional', plan: selectedPlan,
+            referralCodeUsed: profile.referredByCode || undefined
+          });
+        }
+      } catch (error) {
+        console.warn('Store application registration failed:', error);
+        return { user: fbUser, profile: null, error: 'Tu perfil se guardó, pero la solicitud de tienda no. Intenta registrarte de nuevo para completar la solicitud.' };
+      }
+    }
+
+    if (isNewUser) {
+      sendWelcomeEmail({
+        name: profile.displayName || 'Socio Sanpi', email: profile.email || '', role: profile.role,
+        plan: profile.plan, storeName: profile.storeName,
+        referralCode: profile.referralCode || 'SANPI-SOCIO', phone: profile.phone,
+        province: profile.province, referredByCode: profile.referredByCode
+      }).catch(err => console.warn('Welcome email error:', err));
     }
 
     // Save to localStorage for quick restore
@@ -857,6 +873,7 @@ export async function registerWithEmail(params: {
         });
       } catch (err) {
         console.warn('Subscription auto-request registration notice:', err);
+        throw new Error('No se pudo guardar la solicitud de tienda. Intenta registrarte de nuevo.');
       }
     }
 
@@ -875,7 +892,6 @@ export async function registerWithEmail(params: {
 
     // 3. Persist to Firestore & LocalStorage
     try {
-      localStorage.setItem('sanpi_auth_user', JSON.stringify(profile));
       const emailKey = cleanEmail.replace(/[^a-zA-Z0-9]/g, '_');
       await setDoc(doc(db, 'marketplace_users', profile.uid), profile, { merge: true });
       if (emailKey) {
@@ -883,6 +899,8 @@ export async function registerWithEmail(params: {
         await setDoc(doc(db, 'users', emailKey), profile, { merge: true });
       }
       await setDoc(doc(db, 'users', profile.uid), profile, { merge: true });
+
+      localStorage.setItem('sanpi_auth_user', JSON.stringify(profile));
 
       const rawLocal = localStorage.getItem('sanpi_registered_users');
       let registeredList: UserProfile[] = rawLocal ? JSON.parse(rawLocal) : [];
@@ -896,6 +914,7 @@ export async function registerWithEmail(params: {
       }
     } catch (e) {
       console.debug('Firestore registration cache:', e);
+      throw new Error('No se pudo guardar el perfil de usuario. Intenta registrarte de nuevo.');
     }
 
     return { profile };
