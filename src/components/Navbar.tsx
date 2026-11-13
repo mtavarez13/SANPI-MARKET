@@ -35,6 +35,7 @@ interface NavbarProps {
   searchQuery: string;
   setSearchQuery: (query: string) => void;
   currentUser?: UserProfile | null;
+  pimdropAllowed: boolean;
   onOpenAuthModal?: () => void;
   onOpenPartnerModal?: () => void;
   onUserLoggedOut?: () => void;
@@ -58,6 +59,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   searchQuery,
   setSearchQuery,
   currentUser,
+  pimdropAllowed,
   onOpenAuthModal,
   onOpenPartnerModal,
   onUserLoggedOut,
@@ -126,6 +128,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   }, [articles, searchQuery, searchCategory]);
 
   const handleNav = (view: 'explore' | 'catalogs' | 'dropship' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting' | 'orders' | 'purchases') => {
+    if (view === 'dropship' && !pimdropAllowed) return;
     if (!canOpenMarketplaceView(currentUser, view, isSuperAdmin(currentUser?.email))) return;
     if (view !== 'catalogs' && onSelectStoreSlug) {
       onSelectStoreSlug(null);
@@ -538,13 +541,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                       {/* Business & Logistics Modules: ONLY for non-customer roles or superAdmin */}
                       {(currentUser.role !== 'customer' || superAdmin) && (
                         <>
-                          <button
+                          {pimdropAllowed && <button
                             onClick={() => handleNav('dropship')}
                             className="w-full text-left px-3 py-2 rounded-xl hover:bg-slate-50 text-slate-700 hover:text-slate-900 flex items-center gap-2.5 transition-colors"
                           >
                             <Sparkles className="w-4 h-4 text-purple-500" />
                             <span>Pimdrop</span>
-                          </button>
+                          </button>}
 
                           <button
                             onClick={() => handleNav('supplier')}
@@ -679,7 +682,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span>Mis compras</span>
             </button>}
 
-            {!publicOnly && <button
+            {pimdropAllowed && <button
               onClick={() => handleNav('dropship')}
               className={`flex items-center gap-1.5 px-3 py-1 rounded-lg transition-colors ${
                 currentView === 'dropship' ? 'text-slate-900 bg-white font-bold shadow-2xs border border-slate-200' : 'text-slate-700 hover:text-slate-900 hover:bg-slate-200/70'

@@ -40,6 +40,7 @@ export interface SidebarProps {
   adminInitialTab?: string;
   setAdminInitialTab?: (tab: 'users' | 'subs' | 'stores' | 'referrals' | 'dropshippers' | 'landing_pages' | 'config' | 'finance' | 'expenses' | 'map' | 'plans' | 'branding') => void;
   currentUser: UserProfile | null;
+  pimdropAllowed: boolean;
   onOpenAuthModal: (defaultRole?: 'customer' | 'dropshipper' | 'partner') => void;
   onOpenPartnerModal: () => void;
   onOpenGeneratorModal: () => void;
@@ -61,6 +62,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   adminInitialTab = 'users',
   setAdminInitialTab,
   currentUser,
+  pimdropAllowed,
   onOpenAuthModal,
   onOpenPartnerModal,
   onOpenGeneratorModal,
@@ -87,6 +89,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     view: 'explore' | 'catalogs' | 'dropship' | 'landing_page' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting' | 'orders' | 'featured',
     adminTab?: 'users' | 'subs' | 'stores' | 'referrals' | 'dropshippers' | 'landing_pages' | 'config' | 'finance' | 'expenses' | 'map' | 'plans' | 'branding'
   ) => {
+    if (view === 'dropship' && !pimdropAllowed) return;
     if (view === 'admin' && adminTab && setAdminInitialTab) {
       setAdminInitialTab(adminTab);
     }
@@ -488,7 +491,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     )}
                   </button>
 
-                  <button
+                  {pimdropAllowed && <button
                     onClick={() => handleNav('dropship')}
                     className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-bold transition-all text-left ${
                       currentView === 'dropship'
@@ -506,7 +509,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         </span>
                       </div>
                     )}
-                  </button>
+                  </button>}
 
                   <button
                     onClick={() => handleNav('admin', 'map')}
@@ -589,7 +592,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     )}
                   </button>
 
-                  <button
+                  {pimdropAllowed && <button
                     onClick={() => handleNav('dropship')}
                     className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-bold transition-all text-left ${
                       currentView === 'dropship'
@@ -602,7 +605,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     {!isCollapsed && (
                       <span className="truncate">Pimdrop</span>
                     )}
-                  </button>
+                  </button>}
 
                   <button
                     onClick={() => handleNav('accounting')}
@@ -629,7 +632,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {/* DROPSHIPPER PRO PANELS */}
               {!isSuper && effectiveRole === 'dropshipper' && (
                 <>
-                  <button
+                  {pimdropAllowed && <button
                     onClick={() => handleNav('dropship')}
                     className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-bold transition-all text-left ${
                       currentView === 'dropship'
@@ -647,7 +650,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         </span>
                       </div>
                     )}
-                  </button>
+                  </button>}
 
                   <button
                     onClick={() => handleNav('accounting')}
@@ -669,7 +672,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     )}
                   </button>
 
-                  <button
+                  {pimdropAllowed && <button
                     onClick={() => {
                       onOpenGeneratorModal();
                       setIsMobileOpen(false);
@@ -686,7 +689,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         </span>
                       </div>
                     )}
-                  </button>
+                  </button>}
 
                   <button
                     onClick={() => handleNav('track')}

@@ -128,15 +128,15 @@ export const PlansSection: React.FC<PlansSectionProps> = ({
           <div className="bg-white rounded-2xl p-6 border border-slate-200 hover:border-slate-300 transition-all flex flex-col justify-between space-y-6 shadow-2xs">
             <div className="space-y-4">
               <div>
-                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Afiliados & Creadores</span>
-                <h3 className="text-xl font-bold text-slate-900 mt-1">Dropshipper</h3>
-                <p className="text-xs text-slate-500 mt-1">Gana dinero revendiendo productos sin invertir en stock.</p>
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Exclusivo para tiendas Full</span>
+                <h3 className="text-xl font-bold text-slate-900 mt-1">Pimdrop</h3>
+                <p className="text-xs text-slate-500 mt-1">Revende productos desde tu tienda con plan Full activo.</p>
               </div>
 
               <div className="pt-2">
                 <div className="flex items-baseline gap-1">
-                  <span className="text-3xl font-extrabold text-slate-900">RD$ 0</span>
-                  <span className="text-xs text-slate-500">/cuota fija</span>
+                  <span className="text-3xl font-extrabold text-slate-900">Incluido</span>
+                  <span className="text-xs text-slate-500">en plan Full</span>
                 </div>
                 <div className="mt-2 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 py-1 px-2.5 rounded-lg inline-block">
                   100% de tu Margen
@@ -164,11 +164,11 @@ export const PlansSection: React.FC<PlansSectionProps> = ({
             </div>
 
             <button
-              onClick={() => onSelectPlan('dropshipper')}
+              onClick={() => onSelectPlan('full')}
               className="w-full py-3 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-900 font-bold text-xs transition-all border border-slate-200 active:scale-98 flex items-center justify-center gap-1.5 cursor-pointer"
             >
               <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-              <span>Empezar como Dropshipper</span>
+              <span>Elegir plan Full</span>
             </button>
           </div>
 

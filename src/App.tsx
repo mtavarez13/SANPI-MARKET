@@ -38,6 +38,7 @@ import { db, validateFirebaseConnection } from './lib/firebase';
 import { getCurrentStoredUser, isSuperAdmin, setupGlobalAuthObserver } from './lib/authService';
 import { canOpenMarketplaceView, isPublicMarketplaceUser } from './lib/publicMarketplaceAccess';
 import { rolePanelTheme } from './lib/rolePanelTheme';
+import { canAccessPimdrop } from './lib/pimdropAccess';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<'explore' | 'catalogs' | 'dropship' | 'landing_page' | 'seller_landing' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting' | 'orders' | 'featured' | 'purchases'>('explore');
@@ -261,7 +262,12 @@ export default function App() {
     if (currentView === 'orders' && !canViewOrders(currentUser, isSuperAdmin(currentUser?.email))) setCurrentView('explore');
   }, [currentUser, currentView]);
 
+  useEffect(() => {
+    if (currentView === 'dropship' && !canAccessPimdrop(currentUser, stores)) setCurrentView('explore');
+  }, [currentUser, stores, currentView]);
+
   const handleSetCurrentView = (view: 'explore' | 'catalogs' | 'dropship' | 'landing_page' | 'seller_landing' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting' | 'orders' | 'featured' | 'purchases') => {
+    if (view === 'dropship' && !canAccessPimdrop(currentUser, stores)) return;
     if (!canOpenMarketplaceView(currentUser, view, isSuperAdmin(currentUser?.email)) && view !== 'partner') return;
     if (view === 'orders' && !canViewOrders(currentUser, isSuperAdmin(currentUser?.email))) return;
     if (view === 'featured' && currentUser?.role !== 'admin') return;
@@ -325,22 +331,17 @@ export default function App() {
   };
 
   const handleResellArticle = (art: Article) => {
-    if (!currentUser) {
-      setAuthDefaultRole('dropshipper');
-      setAuthModalOpen(true);
-      return;
-    }
+    if (!canAccessPimdrop(currentUser, stores)) return;
     setGeneratorPreselectedArticle(art);
     setGeneratorModalOpen(true);
   };
 
-  const handleSelectPlan = (plan: 'basic' | 'pro' | 'elite' | 'dropshipper') => {
+  const handleSelectPlan = (plan: StorePlan | 'dropshipper') => {
     if (plan === 'dropshipper') {
-      if (!currentUser) {
-        setAuthDefaultRole('dropshipper');
-        setAuthModalOpen(true);
-      } else {
-        setCurrentView('dropship');
+      if (canAccessPimdrop(currentUser, stores)) handleSetCurrentView('dropship');
+      else {
+        setSelectedPlanForRegistration('full');
+        setPartnerModalOpen(true);
       }
     } else {
       setSelectedPlanForRegistration(plan);
@@ -350,6 +351,7 @@ export default function App() {
 
   const totalCartCount = cart.reduce((acc, item) => acc + item.quantity, 0);
   const publicOnly = isPublicMarketplaceUser(currentUser, isSuperAdmin(currentUser?.email));
+  const pimdropAllowed = canAccessPimdrop(currentUser, stores);
   const inRolePanel = !publicOnly && ['admin', 'partner', 'dropship', 'supplier', 'carrier', 'accounting', 'orders', 'featured'].includes(currentView);
   const panelTheme = inRolePanel ? rolePanelTheme(currentUser?.role) : null;
 
@@ -367,6 +369,7 @@ export default function App() {
           adminInitialTab={adminInitialTab}
           setAdminInitialTab={setAdminInitialTab}
           currentUser={currentUser}
+          pimdropAllowed={pimdropAllowed}
           onOpenAuthModal={(defaultRole) => {
             setAuthDefaultRole(defaultRole || 'dropshipper');
             setAuthModalOpen(true);
@@ -407,6 +410,7 @@ export default function App() {
             searchQuery={searchQuery}
             setSearchQuery={setSearchQuery}
             currentUser={currentUser}
+            pimdropAllowed={pimdropAllowed}
             onOpenAuthModal={() => {
               setAuthDefaultRole('customer');
               setAuthModalOpen(true);
@@ -465,7 +469,7 @@ export default function App() {
                 if (currentUser) {
                   if (canViewOrders(currentUser, isSuperAdmin(currentUser.email))) handleSetCurrentView('orders');
                   else if (currentUser.role === 'admin') setCurrentView('admin');
-                  else setCurrentView('dropship');
+                  else handleSetCurrentView('dropship');
                 } else {
                   setSelectedPlanForRegistration('pro');
                   setPartnerModalOpen(true);
@@ -498,7 +502,7 @@ export default function App() {
                 setAuthDefaultRole('dropshipper');
                 setAuthModalOpen(true);
               }}
-              onResellArticle={publicOnly ? undefined : handleResellArticle}
+              onResellArticle={pimdropAllowed ? handleResellArticle : undefined}
               onViewLandingPage={handleOpenLp}
             />
 
@@ -531,7 +535,7 @@ export default function App() {
                   setAuthDefaultRole('dropshipper');
                   setAuthModalOpen(true);
                 } else {
-                  setCurrentView('dropship');
+                  handleSetCurrentView('dropship');
                 }
               }}
             />}
@@ -575,7 +579,7 @@ export default function App() {
         )}
 
         {/* DROPSHIPPING & LANDING PAGES HUB */}
-        {currentView === 'dropship' && !publicOnly && (
+        {currentView === 'dropship' && pimdropAllowed && (
           <DropshipperHub
             articles={articles}
             stores={stores}
@@ -797,6 +801,7 @@ export default function App() {
           }}
           config={siteConfig}
           showBusinessLinks={!publicOnly}
+          pimdropAllowed={pimdropAllowed}
         />
       )}
 

@@ -7,9 +7,10 @@ interface FooterProps {
   onOpenAuth: () => void;
   config?: SiteThemeConfig;
   showBusinessLinks?: boolean;
+  pimdropAllowed?: boolean;
 }
 
-export const Footer: React.FC<FooterProps> = ({ onNav, onOpenAuth, config, showBusinessLinks = true }) => {
+export const Footer: React.FC<FooterProps> = ({ onNav, onOpenAuth, config, showBusinessLinks = true, pimdropAllowed = false }) => {
   const siteName = config?.siteName || 'SANPI';
   const siteTagline = config?.siteTagline || 'MARKET';
   const siteSlogan = config?.siteSlogan || 'La Magia de comprar Online';
@@ -92,11 +93,11 @@ export const Footer: React.FC<FooterProps> = ({ onNav, onOpenAuth, config, showB
                   Registrar mi Tienda
                 </button>
               </li>
-              <li>
+              {pimdropAllowed && <li>
                 <button onClick={() => onNav('dropship')} className="hover:text-slate-900 transition-colors cursor-pointer">
                   Pimdrop
                 </button>
-              </li>
+              </li>}
               <li>
                 <a href="#planes" className="hover:text-slate-900 transition-colors">
                   Planes & Membresías
