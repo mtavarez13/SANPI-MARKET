@@ -1,0 +1,8 @@
+{
+  "firestore": [
+    {
+      "database": "ai-studio-sanpimarket-0d7cf290-2e17-4f87-b9cf-2fc45925699f",
+      "rules": "firestore.rules"
+    }
+  ]
+}

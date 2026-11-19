@@ -1303,7 +1303,10 @@ export class SanpiStoreManager {
     if (!delivery || !actor || actor.isAnonymous || actor.uid !== paidBy) throw new Error('Sesión no válida.');
     if (!reference.trim() || !Number.isFinite(paidAmount) || paidAmount <= 0) throw new Error('Monto o referencia inválidos.');
     if (normalizeDeliveryStatus(delivery.status) !== 'entregado') throw new Error('Solo se liquidan entregas completadas.');
-    const linked = kind === 'store' ? this.transactions.find(item => item.trackingNumber === delivery.trackingNumber) : undefined;
+    const guideAliases = [delivery.trackingNumber, delivery.externalOrderId, delivery.id]
+      .filter(Boolean).map(value => String(value).trim().toLowerCase());
+    const linked = kind === 'store' ? this.transactions.find(item =>
+      item.storeId === delivery.storeId && guideAliases.includes(String(item.trackingNumber || '').trim().toLowerCase())) : undefined;
     const paidAt = new Date().toISOString();
     const fields = kind === 'store'
       ? { storePaidAt: paidAt, storePaidBy: paidBy, storePaidAmount: paidAmount, storePaymentReference: reference.trim() }

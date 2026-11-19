@@ -81,6 +81,11 @@ service cloud.firestore {
       );
     }
 
+    function settlementFields() {
+      return ['storePaidAt', 'storePaidBy', 'storePaidAmount', 'storePaymentReference',
+        'driverPaidAt', 'driverPaidBy', 'driverPaidAmount', 'driverPaymentReference'];
+    }
+
     // Stores: Public catalog reading, partner/admin updates
     match /stores/{storeId} {
       allow read: if true;
@@ -98,8 +103,10 @@ service cloud.firestore {
     match /deliveries/{deliveryId} {
       allow get: if true;
       allow list: if isRegisteredUser();
-      allow create: if isRegisteredUser() || validGuestDelivery(deliveryId);
-      allow update: if isRegisteredUser() || (isGuest()
+      allow create: if (isRegisteredUser() || validGuestDelivery(deliveryId))
+        && (isAdmin() || !request.resource.data.keys().hasAny(settlementFields()));
+      allow update: if isAdmin() || (isRegisteredUser()
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(settlementFields())) || (isGuest()
         && resource.data.createdByUid == request.auth.uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'sachaPackResponse', 'sachaPackStatus', 'sachaPackDispatchedAt'
@@ -110,8 +117,11 @@ service cloud.firestore {
     // Transactions / Ledger
     match /transactions/{transactionId} {
       allow read: if isRegisteredUser();
-      allow create: if isRegisteredUser() || validGuestTransaction(transactionId);
-      allow update, delete: if isRegisteredUser();
+      allow create: if (isRegisteredUser() || validGuestTransaction(transactionId))
+        && (isAdmin() || !request.resource.data.keys().hasAny(settlementFields()));
+      allow update: if isAdmin() || (isRegisteredUser()
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(settlementFields()));
+      allow delete: if isAdmin();
     }
 
     // Subscriptions for partner stores

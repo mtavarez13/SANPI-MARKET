@@ -1,16 +1,19 @@
 import React, { useMemo, useState } from 'react';
 import { ArrowDownLeft, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Download, Package, Search, ShoppingBag, Truck } from 'lucide-react';
-import type { Delivery, LandingPageConfig, Store, UserProfile } from '../types';
+import type { Delivery, LandingPageConfig, Store, Transaction, UserProfile } from '../types';
 import { canViewOrders, isDropshippingOrder, ORDER_STATUSES, visibleOrders } from '../lib/orderVisibility';
 import { isSuperAdmin } from '../lib/authService';
 import { downloadShippingLabel } from '../lib/shippingLabel';
 import { sanpiManager } from '../lib/storeManager';
+import { reconcileSales } from '../lib/accountingReconciliation';
+import { normalizeDeliveryStatus } from '../lib/deliveryWorkflow';
+import { canSettleStoreOrder } from '../lib/storeSettlementSelection';
 
-interface Props { currentUser: UserProfile | null; deliveries: Delivery[]; stores: Store[]; landingPages: LandingPageConfig[] }
+interface Props { currentUser: UserProfile | null; deliveries: Delivery[]; stores: Store[]; transactions: Transaction[]; landingPages: LandingPageConfig[] }
 const money = (value: number) => new Intl.NumberFormat('es-DO', { style: 'currency', currency: 'DOP' }).format(value || 0);
 const date = (value: string) => Number.isNaN(Date.parse(value)) ? 'Sin fecha' : new Intl.DateTimeFormat('es-DO', { dateStyle: 'medium' }).format(new Date(value));
 
-export const OrdersDashboard: React.FC<Props> = ({ currentUser, deliveries, stores, landingPages }) => {
+export const OrdersDashboard: React.FC<Props> = ({ currentUser, deliveries, stores, transactions, landingPages }) => {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('all');
   const [storeId, setStoreId] = useState('all');
@@ -19,9 +22,14 @@ export const OrdersDashboard: React.FC<Props> = ({ currentUser, deliveries, stor
   const [to, setTo] = useState('');
   const [page, setPage] = useState(1);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [paymentReference, setPaymentReference] = useState('');
+  const [settling, setSettling] = useState(false);
+  const [settlementMessage, setSettlementMessage] = useState('');
   const superAdmin = isSuperAdmin(currentUser?.email);
   const admin = superAdmin || currentUser?.role === 'admin';
   const scoped = useMemo(() => visibleOrders(currentUser, deliveries, stores, landingPages, superAdmin), [currentUser, deliveries, stores, landingPages, superAdmin]);
+  const settlementRows = useMemo(() => new Map(reconcileSales(scoped, transactions, stores).map(row => [row.delivery.id, row])), [scoped, transactions, stores]);
   const storeNames = useMemo(() => new Map(stores.map(s => [s.id, s.name])), [stores]);
   const availableStores = stores.filter(s => admin || scoped.some(order => order.storeId === s.id));
   const filtered = useMemo(() => scoped.filter(order => {
@@ -36,8 +44,35 @@ export const OrdersDashboard: React.FC<Props> = ({ currentUser, deliveries, stor
   const pages = Math.max(1, Math.ceil(filtered.length / 12));
   const activePage = Math.min(page, pages);
   const shown = filtered.slice((activePage - 1) * 12, activePage * 12);
-  const setFilter = (setter: (s: string) => void, value: string) => { setter(value); setPage(1); setExpanded(null); };
-  const reset = () => { setSearch(''); setStatus('all'); setStoreId('all'); setChannel('all'); setFrom(''); setTo(''); setPage(1); setExpanded(null); };
+  const selectedRows = selectedIds.map(id => settlementRows.get(id)).filter(canSettleStoreOrder);
+  const selectedStoreId = selectedRows[0]?.delivery.storeId;
+  const selectedTotal = selectedRows.reduce((sum, row) => sum + row.storePayable, 0);
+  const pageEligible = shown.filter(order => {
+    const row = settlementRows.get(order.id);
+    return canSettleStoreOrder(row, selectedStoreId);
+  });
+  const setFilter = (setter: (s: string) => void, value: string) => { setter(value); setPage(1); setExpanded(null); setSelectedIds([]); };
+  const reset = () => { setSearch(''); setStatus('all'); setStoreId('all'); setChannel('all'); setFrom(''); setTo(''); setPage(1); setExpanded(null); setSelectedIds([]); };
+  const toggleOrder = (id: string) => setSelectedIds(previous => previous.includes(id) ? previous.filter(item => item !== id) : previous.length < 50 ? [...previous, id] : previous);
+  const settleSelected = async () => {
+    if (!admin || !currentUser?.uid || settling || !paymentReference.trim() || !selectedRows.length) return;
+    const reference = paymentReference.trim();
+    const storeName = storeNames.get(selectedStoreId || '') || 'la tienda';
+    if (!window.confirm(`Confirmar pago ya realizado a ${storeName}\n${selectedRows.length} órdenes · ${money(selectedTotal)}\nReferencia: ${reference}\n\nEsta acción registrará la liquidación en cada guía.`)) return;
+    setSettling(true);
+    let completed = 0;
+    const failed: string[] = [];
+    for (const row of selectedRows) {
+      try {
+        await sanpiManager.recordSettlement(row.delivery.id, 'store', currentUser.uid, row.storePayable, reference);
+        completed++;
+      } catch { failed.push(row.delivery.trackingNumber || row.delivery.id); }
+    }
+    setSelectedIds(failed.length ? selectedRows.filter(row => failed.includes(row.delivery.trackingNumber || row.delivery.id)).map(row => row.delivery.id) : []);
+    if (!failed.length) setPaymentReference('');
+    setSettlementMessage(`${completed} orden(es) marcadas como pagadas a ${storeName}.${failed.length ? ` ${failed.length} no se pudieron liquidar: ${failed.join(', ')}. Revisa los permisos, el estado y la conexión.` : ''}`);
+    setSettling(false);
+  };
   if (!canViewOrders(currentUser, superAdmin)) return <section className="rounded-2xl border bg-white p-10 text-center"><Package className="mx-auto mb-4 text-slate-400" /><h1 className="text-xl font-bold">Panel de órdenes</h1><p className="mt-2 text-slate-500">Inicia sesión con una cuenta de administrador, tienda o dropshipper para consultar tus órdenes.</p></section>;
   const metrics = [
     { label: 'Órdenes', value: filtered.length, icon: ShoppingBag, color: 'text-violet-600 bg-violet-50' },
@@ -54,6 +89,12 @@ export const OrdersDashboard: React.FC<Props> = ({ currentUser, deliveries, stor
     </header>
     <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-5">{metrics.map(m => <div key={m.label} className="rounded-2xl border border-slate-200/80 bg-white p-4 sm:p-6 shadow-xs"><div className="flex items-center justify-between gap-2"><span className="text-xs sm:text-sm text-slate-500">{m.label}</span><m.icon className={`h-9 w-9 rounded-xl p-2 ${m.color}`} /></div><p className="mt-4 text-xl sm:text-2xl font-bold tracking-tight break-words">{m.value}</p><p className="mt-1 text-[11px] text-slate-400">Según los filtros seleccionados</p></div>)}</div>
     <div className="flex flex-wrap gap-2" aria-label="Filtrar por estado"><button onClick={() => setFilter(setStatus, 'all')} aria-pressed={status === 'all'} className={`rounded-full border px-4 py-2 text-xs font-semibold ${status === 'all' ? 'bg-slate-900 text-white border-slate-900' : 'bg-white border-slate-200 text-slate-600'}`}>Todas <span className="ml-1">{scoped.length}</span></button>{Object.entries(ORDER_STATUSES).map(([key, value]) => <button key={key} onClick={() => setFilter(setStatus, key)} aria-pressed={status === key} className={`rounded-full border px-4 py-2 text-xs font-semibold ${status === key ? value.color : 'bg-white border-slate-200 text-slate-600'}`}>{value.label} <span className="ml-1 opacity-70">{scoped.filter(d => d.status === key).length}</span></button>)}</div>
+    {admin && <div className="rounded-2xl border border-violet-200 bg-violet-50 p-5 space-y-4">
+      <div><h2 className="font-bold text-violet-950">Liquidar órdenes entregadas a tiendas</h2><p className="mt-1 text-xs text-violet-800">Selecciona entregas de una sola tienda. Las guías sin comisión confirmada deben revisarse en Contabilidad. Registrar aquí deja constancia de un pago ya realizado; no envía dinero.</p></div>
+      <div className="flex flex-wrap items-center gap-3"><button type="button" onClick={() => setSelectedIds(previous => [...new Set([...previous, ...pageEligible.map(order => order.id)])].slice(0, 50))} disabled={!pageEligible.length || settling} className="rounded-lg border border-violet-300 bg-white px-3 py-2 text-xs font-bold disabled:opacity-50">Seleccionar entregadas de esta página</button><button type="button" onClick={() => setSelectedIds([])} disabled={!selectedIds.length || settling} className="text-xs font-semibold text-violet-700 disabled:opacity-50">Limpiar selección</button><span className="text-sm font-bold text-violet-950">{selectedRows.length} seleccionadas · {money(selectedTotal)} a tienda</span></div>
+      <div className="flex flex-wrap items-end gap-3"><label className="min-w-[230px] flex-1 text-xs font-semibold text-violet-950">Referencia del pago realizado<input value={paymentReference} onChange={event => setPaymentReference(event.target.value)} maxLength={100} placeholder="Transferencia o recibo" className="order-input mt-1 bg-white" /></label><button type="button" onClick={settleSelected} disabled={!selectedRows.length || !paymentReference.trim() || settling} className="rounded-xl bg-violet-700 px-5 py-3 text-sm font-bold text-white disabled:opacity-50">{settling ? 'Registrando…' : 'Marcar seleccionadas como pagadas'}</button></div>
+      {settlementMessage && <p role="status" className="text-sm text-violet-900">{settlementMessage}</p>}
+    </div>}
     <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-xs">
       <div className="p-4 sm:p-6 border-b border-slate-100 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="font-bold">Registro de órdenes</h2><button onClick={reset} className="text-xs font-semibold text-violet-700 hover:underline">Limpiar filtros</button></div>
@@ -65,19 +106,23 @@ export const OrdersDashboard: React.FC<Props> = ({ currentUser, deliveries, stor
         <div className="flex flex-wrap gap-3 items-center text-xs text-slate-500"><label className="flex items-center gap-2">Desde <input type="date" className="order-input w-auto" value={from} max={to || undefined} onChange={e => setFilter(setFrom, e.target.value)} /></label><label className="flex items-center gap-2">Hasta <input type="date" className="order-input w-auto" value={to} min={from || undefined} onChange={e => setFilter(setTo, e.target.value)} /></label><span className="sm:ml-auto" role="status">{filtered.length} resultados</span></div>
         {from && to && from > to && <p role="alert" className="text-sm text-rose-700">La fecha inicial debe ser anterior a la fecha final.</p>}
       </div>
-      <div className="hidden lg:grid grid-cols-[1.2fr_1fr_1fr_.9fr_.9fr_40px] gap-4 px-6 py-3 bg-slate-50 text-[10px] uppercase tracking-wider font-semibold text-slate-500"><span>Orden / cliente</span><span>Tienda / canal</span><span>Fecha</span><span>Total</span><span>Estado</span><span /></div>
+      <div className="hidden lg:flex items-center bg-slate-50 text-[10px] uppercase tracking-wider font-semibold text-slate-500">{admin && <span className="w-14 shrink-0 text-center">Pago</span>}<div className="grid flex-1 grid-cols-[1.2fr_1fr_1fr_.9fr_.9fr_40px] gap-4 px-6 py-3"><span>Orden / cliente</span><span>Tienda / canal</span><span>Fecha</span><span>Total</span><span>Estado</span><span /></div></div>
       {shown.length === 0 ? <div className="py-16 px-6 text-center"><Package className="h-10 w-10 mx-auto text-slate-300" /><h3 className="mt-4 font-bold">{scoped.length ? 'No encontramos órdenes con estos filtros' : 'Todavía no hay órdenes para mostrar'}</h3><p className="mt-2 text-sm text-slate-500">{scoped.length ? 'Prueba otra búsqueda o limpia los filtros.' : 'Las órdenes asociadas a tu cuenta aparecerán aquí.'}</p></div> : shown.map(order => {
         const state = ORDER_STATUSES[order.status] || { label: order.status, color: 'bg-slate-100 text-slate-700 border-slate-200' };
         const open = expanded === order.id;
+        const row = settlementRows.get(order.id);
+        const canSettle = canSettleStoreOrder(row, selectedStoreId);
         return <article key={order.id} className="border-b border-slate-100 last:border-b-0">
-          <button onClick={() => setExpanded(open ? null : order.id)} aria-expanded={open} aria-controls={`order-${order.id}`} className="w-full text-left grid grid-cols-2 lg:grid-cols-[1.2fr_1fr_1fr_.9fr_.9fr_40px] gap-4 items-center p-4 sm:px-6 sm:py-5 hover:bg-slate-50/80 transition-colors">
+          <div className="flex items-center">{admin && <label className="flex w-14 shrink-0 items-center justify-center" title={order.storePaidAt ? 'Ya pagada a tienda' : !row?.delivered ? 'Solo se liquidan entregas' : !row.hasConfirmedCommission ? 'Comisión pendiente de verificar' : selectedStoreId && order.storeId !== selectedStoreId ? 'Selecciona órdenes de la misma tienda' : 'Seleccionar para liquidar'}><input type="checkbox" aria-label={`Seleccionar guía ${order.trackingNumber || order.id} para pago a tienda`} checked={selectedIds.includes(order.id)} disabled={!canSettle || settling} onChange={() => toggleOrder(order.id)} className="h-4 w-4 accent-violet-700" /></label>}
+          <button onClick={() => setExpanded(open ? null : order.id)} aria-expanded={open} aria-controls={`order-${order.id}`} className="min-w-0 flex-1 text-left grid grid-cols-2 lg:grid-cols-[1.2fr_1fr_1fr_.9fr_.9fr_40px] gap-4 items-center p-4 sm:px-6 sm:py-5 hover:bg-slate-50/80 transition-colors">
             <div className="min-w-0"><p className="text-sm font-bold truncate">{order.trackingNumber || order.id}</p><p className="text-xs text-slate-500 truncate mt-1">{order.customerName}</p></div>
             <div className="min-w-0"><p className="text-xs font-semibold truncate">{storeNames.get(order.storeId) || 'Tienda no disponible'}</p><p className="mt-1 text-[11px] text-slate-400">{isDropshippingOrder(order) ? 'Pimdrop' : 'Marketplace'}</p></div>
             <span className="text-xs text-slate-500">{date(order.createdAt)}</span><span className="text-sm font-semibold">{money(order.totalCodAmount)}</span>
-            <span className={`justify-self-start text-[11px] font-semibold border rounded-full px-2.5 py-1 ${state.color}`}>{state.label}</span><ChevronDown className={`h-4 w-4 justify-self-end text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+            <div className="justify-self-start space-y-1"><span className={`inline-block text-[11px] font-semibold border rounded-full px-2.5 py-1 ${state.color}`}>{state.label}</span>{order.storePaidAt && <span className="block text-[11px] font-bold text-emerald-700">Pagada a tienda</span>}{row?.delivered && !order.storePaidAt && <span className="block text-[11px] font-semibold text-amber-700">Pago pendiente</span>}</div><ChevronDown className={`h-4 w-4 justify-self-end text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
           </button>
+          </div>
           {open && <div id={`order-${order.id}`} className="bg-slate-50 px-4 sm:px-6 py-6 grid sm:grid-cols-2 xl:grid-cols-3 gap-6 text-sm">
-            <div><h3 className="font-bold mb-3">Detalle del pedido</h3><p>{order.articleName}</p><p className="text-xs text-slate-500 mt-2 break-all">ID: {order.id}</p><dl className="mt-4 space-y-2"><div className="flex justify-between gap-3"><dt className="text-slate-500">Producto</dt><dd>{money(order.basePrice)}</dd></div><div className="flex justify-between gap-3"><dt className="text-slate-500">Envío</dt><dd>{money(order.shippingFee)}</dd></div><div className="flex justify-between gap-3 font-semibold"><dt>Total</dt><dd>{money(order.totalCodAmount)}</dd></div></dl><p className="mt-3 text-xs text-slate-500">Pago: {order.paymentMethod || 'No especificado'}</p>{order.dropshipperName && <p className="mt-2 text-xs text-slate-500">Dropshipper: {order.dropshipperName}</p>}</div>
+            <div><h3 className="font-bold mb-3">Detalle del pedido</h3><p>{order.articleName}</p><p className="text-xs text-slate-500 mt-2 break-all">ID: {order.id}</p><dl className="mt-4 space-y-2"><div className="flex justify-between gap-3"><dt className="text-slate-500">Producto</dt><dd>{money(order.basePrice)}</dd></div><div className="flex justify-between gap-3"><dt className="text-slate-500">Envío</dt><dd>{money(order.shippingFee)}</dd></div><div className="flex justify-between gap-3 font-semibold"><dt>Total</dt><dd>{money(order.totalCodAmount)}</dd></div></dl><p className="mt-3 text-xs text-slate-500">Pago: {order.paymentMethod || 'No especificado'}</p>{order.dropshipperName && <p className="mt-2 text-xs text-slate-500">Dropshipper: {order.dropshipperName}</p>}{order.storePaidAt ? <p className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900"><strong>Pagada a tienda{order.storePaidAmount !== undefined ? `: ${money(order.storePaidAmount)}` : ''}</strong><br />Fecha: {date(order.storePaidAt)}{order.storePaymentReference && <><br />Referencia: {order.storePaymentReference}</>}</p> : row?.delivered && <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-900">Liquidación a tienda pendiente</p>}</div>
             <div><h3 className="font-bold mb-3">Cliente y entrega</h3><p>{order.customerName}</p><p className="text-slate-500 mt-1">{order.customerPhone}</p><p className="text-slate-500 mt-3">{order.address}</p><p className="text-slate-500">{order.city}, {order.province}</p><p className="text-xs text-slate-500 mt-3">Transportista: {order.carrierName || order.logisticsProviderName || 'Por asignar'}</p>{order.notes && <p className="text-xs text-slate-500 mt-3">Notas: {order.notes}</p>}</div>
             <div><h3 className="font-bold mb-3">Historial de estados</h3>{order.history?.length ? <ol className="border-l-2 border-violet-100 pl-4 space-y-4">{[...order.history].sort((a,b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0)).map((entry, i) => <li key={i}><p className="text-xs font-semibold">{ORDER_STATUSES[entry.status as keyof typeof ORDER_STATUSES]?.label || entry.status}</p><p className="text-[11px] text-slate-400 mt-1">{date(entry.date)}</p><p className="text-xs text-slate-500 mt-1">{entry.note}</p></li>)}</ol> : <p className="text-xs text-slate-500">Sin movimientos registrados.</p>}<button type="button" onClick={() => downloadShippingLabel(order, stores.find(store => store.id === order.storeId), sanpiManager.siteConfig).catch(error => alert(`No se pudo generar la etiqueta: ${error instanceof Error ? error.message : String(error)}`))} className="mt-4 inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800"><Download size={15} /> Etiqueta PDF 4×6</button></div>
           </div>}

@@ -562,7 +562,7 @@ export default function App() {
           onOpenOrders={() => handleSetCurrentView('orders')}
           onOpenAccounting={() => handleSetCurrentView('accounting')}
         />}
-        {currentView === 'orders' && !publicOnly && <OrdersDashboard key={currentUser?.uid} currentUser={currentUser} deliveries={deliveries} stores={stores} landingPages={landingPages} />}
+        {currentView === 'orders' && !publicOnly && <OrdersDashboard key={currentUser?.uid} currentUser={currentUser} deliveries={deliveries} stores={stores} transactions={transactions} landingPages={landingPages} />}
         {currentView === 'purchases' && currentUser?.role === 'customer' && <CustomerPurchases
           key={currentUser.uid}
           currentUser={currentUser}
