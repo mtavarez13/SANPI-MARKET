@@ -35,8 +35,8 @@ import { canViewOrders } from '../lib/orderVisibility';
 import { isSuperAdmin } from '../lib/authService';
 
 export interface SidebarProps {
-  currentView: 'explore' | 'catalogs' | 'dropship' | 'landing_page' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting' | 'orders' | 'featured';
-  setCurrentView: (view: 'explore' | 'catalogs' | 'dropship' | 'landing_page' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting' | 'orders' | 'featured') => void;
+  currentView: 'explore' | 'catalogs' | 'dropship' | 'landing_page' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting' | 'orders' | 'store_dashboard' | 'featured';
+  setCurrentView: (view: 'explore' | 'catalogs' | 'dropship' | 'landing_page' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting' | 'orders' | 'store_dashboard' | 'featured') => void;
   adminInitialTab?: string;
   setAdminInitialTab?: (tab: 'users' | 'subs' | 'stores' | 'referrals' | 'dropshippers' | 'landing_pages' | 'config' | 'finance' | 'expenses' | 'map' | 'plans' | 'branding') => void;
   currentUser: UserProfile | null;
@@ -86,7 +86,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     : (currentUser?.role || 'customer');
 
   const handleNav = (
-    view: 'explore' | 'catalogs' | 'dropship' | 'landing_page' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting' | 'orders' | 'featured',
+    view: 'explore' | 'catalogs' | 'dropship' | 'landing_page' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting' | 'orders' | 'store_dashboard' | 'featured',
     adminTab?: 'users' | 'subs' | 'stores' | 'referrals' | 'dropshippers' | 'landing_pages' | 'config' | 'finance' | 'expenses' | 'map' | 'plans' | 'branding'
   ) => {
     if (view === 'dropship' && !pimdropAllowed) return;
@@ -551,6 +551,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {/* PARTNER / TIENDA MAYORISTA PANELS */}
               {!isSuper && effectiveRole === 'partner' && (
                 <>
+                  <button onClick={() => handleNav('store_dashboard')}
+                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-bold transition-all text-left ${currentView === 'store_dashboard' ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-600/30' : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'}`}
+                    title="Resumen de mi tienda, entregas e inventario">
+                    <TrendingUp className="w-4 h-4 shrink-0 text-emerald-500" />
+                    {!isCollapsed && <span className="truncate">Panel de mi Tienda</span>}
+                  </button>
                   <button
                     onClick={() => {
                       if (currentUser?.storeName) {

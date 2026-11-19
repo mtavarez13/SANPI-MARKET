@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { OrdersDashboard } from './components/OrdersDashboard';
+import { StoreDashboard } from './components/StoreDashboard';
 import { CustomerPurchases } from './components/CustomerPurchases';
 import { AccountingWorkspace } from './components/AccountingWorkspace';
 import { FeaturedProductsManager } from './components/FeaturedProductsManager';
@@ -41,7 +42,7 @@ import { rolePanelTheme } from './lib/rolePanelTheme';
 import { canAccessPimdrop } from './lib/pimdropAccess';
 
 export default function App() {
-  const [currentView, setCurrentView] = useState<'explore' | 'catalogs' | 'dropship' | 'landing_page' | 'seller_landing' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting' | 'orders' | 'featured' | 'purchases'>('explore');
+  const [currentView, setCurrentView] = useState<'explore' | 'catalogs' | 'dropship' | 'landing_page' | 'seller_landing' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting' | 'orders' | 'store_dashboard' | 'featured' | 'purchases'>('explore');
   const [searchQuery, setSearchQuery] = useState('');
   const [trackingQuery, setTrackingQuery] = useState('');
   const [trackingReturnView, setTrackingReturnView] = useState<'explore' | 'purchases'>('explore');
@@ -263,10 +264,15 @@ export default function App() {
   }, [currentUser, currentView]);
 
   useEffect(() => {
+    if (currentView === 'store_dashboard' && currentUser?.role !== 'partner') setCurrentView('explore');
+  }, [currentUser, currentView]);
+
+  useEffect(() => {
     if (currentView === 'dropship' && !canAccessPimdrop(currentUser, stores)) setCurrentView('explore');
   }, [currentUser, stores, currentView]);
 
-  const handleSetCurrentView = (view: 'explore' | 'catalogs' | 'dropship' | 'landing_page' | 'seller_landing' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting' | 'orders' | 'featured' | 'purchases') => {
+  const handleSetCurrentView = (view: 'explore' | 'catalogs' | 'dropship' | 'landing_page' | 'seller_landing' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting' | 'orders' | 'store_dashboard' | 'featured' | 'purchases') => {
+    if (view === 'store_dashboard' && currentUser?.role !== 'partner') return;
     if (view === 'dropship' && !canAccessPimdrop(currentUser, stores)) return;
     if (!canOpenMarketplaceView(currentUser, view, isSuperAdmin(currentUser?.email)) && view !== 'partner') return;
     if (view === 'orders' && !canViewOrders(currentUser, isSuperAdmin(currentUser?.email))) return;
@@ -352,7 +358,7 @@ export default function App() {
   const totalCartCount = cart.reduce((acc, item) => acc + item.quantity, 0);
   const publicOnly = isPublicMarketplaceUser(currentUser, isSuperAdmin(currentUser?.email));
   const pimdropAllowed = canAccessPimdrop(currentUser, stores);
-  const inRolePanel = !publicOnly && ['admin', 'partner', 'dropship', 'supplier', 'carrier', 'accounting', 'orders', 'featured'].includes(currentView);
+  const inRolePanel = !publicOnly && ['admin', 'partner', 'dropship', 'supplier', 'carrier', 'accounting', 'orders', 'store_dashboard', 'featured'].includes(currentView);
   const panelTheme = inRolePanel ? rolePanelTheme(currentUser?.role) : null;
 
   return (
@@ -467,7 +473,8 @@ export default function App() {
               onJoinClick={() => {
                 if (publicOnly) { handleSetCurrentView('seller_landing'); return; }
                 if (currentUser) {
-                  if (canViewOrders(currentUser, isSuperAdmin(currentUser.email))) handleSetCurrentView('orders');
+                  if (currentUser.role === 'partner') handleSetCurrentView('store_dashboard');
+                  else if (canViewOrders(currentUser, isSuperAdmin(currentUser.email))) handleSetCurrentView('orders');
                   else if (currentUser.role === 'admin') setCurrentView('admin');
                   else handleSetCurrentView('dropship');
                 } else {
@@ -549,6 +556,12 @@ export default function App() {
           </div>
         )}
 
+        {currentView === 'store_dashboard' && currentUser?.role === 'partner' && <StoreDashboard
+          currentUser={currentUser} stores={stores} articles={articles} deliveries={deliveries}
+          transactions={transactions} expenses={expenses} landingPages={landingPages}
+          onOpenOrders={() => handleSetCurrentView('orders')}
+          onOpenAccounting={() => handleSetCurrentView('accounting')}
+        />}
         {currentView === 'orders' && !publicOnly && <OrdersDashboard key={currentUser?.uid} currentUser={currentUser} deliveries={deliveries} stores={stores} landingPages={landingPages} />}
         {currentView === 'purchases' && currentUser?.role === 'customer' && <CustomerPurchases
           key={currentUser.uid}
@@ -772,8 +785,8 @@ export default function App() {
         user={welcomeModalUser || currentUser}
         onNavigateToWorkspace={(role) => {
           if (role === 'partner') {
-            setSelectedStoreSlug(currentUser?.storeName ? currentUser.storeName.toLowerCase().replace(/[^a-z0-9]/g, '-') : null);
-            setCurrentView('catalogs');
+            setSelectedStoreSlug(null);
+            setCurrentView('store_dashboard');
           } else if (role === 'dropshipper') {
             setCurrentView('dropship');
           } else {

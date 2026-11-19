@@ -26,8 +26,8 @@ import { canOpenMarketplaceView, isPublicMarketplaceUser } from '../lib/publicMa
 import { RD_PROVINCES, CATEGORIES } from '../data/rdProvinces';
 
 interface NavbarProps {
-  currentView: 'explore' | 'catalogs' | 'dropship' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting' | 'orders' | 'purchases';
-  setCurrentView: (view: 'explore' | 'catalogs' | 'dropship' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting' | 'orders' | 'purchases') => void;
+  currentView: 'explore' | 'catalogs' | 'dropship' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting' | 'orders' | 'store_dashboard' | 'purchases';
+  setCurrentView: (view: 'explore' | 'catalogs' | 'dropship' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting' | 'orders' | 'store_dashboard' | 'purchases') => void;
   selectedStoreSlug?: string | null;
   onSelectStoreSlug?: (slug: string | null) => void;
   cartCount: number;
@@ -127,7 +127,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       .slice(0, 5);
   }, [articles, searchQuery, searchCategory]);
 
-  const handleNav = (view: 'explore' | 'catalogs' | 'dropship' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting' | 'orders' | 'purchases') => {
+  const handleNav = (view: 'explore' | 'catalogs' | 'dropship' | 'track' | 'partner' | 'admin' | 'carrier' | 'supplier' | 'accounting' | 'orders' | 'store_dashboard' | 'purchases') => {
     if (view === 'dropship' && !pimdropAllowed) return;
     if (!canOpenMarketplaceView(currentUser, view, isSuperAdmin(currentUser?.email))) return;
     if (view !== 'catalogs' && onSelectStoreSlug) {
@@ -468,6 +468,14 @@ export const Navbar: React.FC<NavbarProps> = ({
                           </span>
                         </button>
                       )}
+
+                      {currentUser.role === 'partner' && <button
+                        onClick={() => handleNav('store_dashboard')}
+                        className="w-full text-left px-3 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-900 flex items-center gap-2.5 font-bold transition-colors"
+                      >
+                        <Store className="w-4 h-4" />
+                        <span>Panel de mi Tienda</span>
+                      </button>}
 
                       {/* User's Own Store Link (Only for merchants / partners / dropshippers / admins) */}
                       {currentUser.role !== 'customer' && (() => {
