@@ -56,3 +56,10 @@ test('other roles and visitors receive no store data', () => {
     assert.equal(data.productSales, 0);
   }
 });
+
+test('legacy paid guide without recorded amount is not shown as pending or assigned an invented payment amount', () => {
+  const data = storeDashboardData(partner, stores, articles,
+    [order('delivered', 'one', 'entregado', { storePaidAt: '2026-11-12' })], transactions, [], []);
+  assert.equal(data.storePaid, 0);
+  assert.equal(data.storePending, 0);
+});

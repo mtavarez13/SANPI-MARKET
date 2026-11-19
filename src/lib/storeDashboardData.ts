@@ -53,6 +53,7 @@ export function storeDashboardData(
   let driverPayments = 0;
   let storePayable = 0;
   let storePaid = 0;
+  let storePending = 0;
   let productCosts = 0;
   let netBeforeExpenses = 0;
   let reviewCount = 0;
@@ -74,7 +75,8 @@ export function storeDashboardData(
       continue;
     }
     storePayable += row.storePayable;
-    if (row.delivery.storePaidAt) storePaid += number(row.delivery.storePaidAmount ?? row.storePayable);
+    if (row.delivery.storePaidAt) storePaid += number(row.delivery.storePaidAmount);
+    else storePending += row.storePayable;
     if (costKnown) netBeforeExpenses += row.storePayable - cost;
   }
   const expensesTotal = scoped.expenses.reduce((sum, item) => sum + number(item.amount), 0);
@@ -83,7 +85,7 @@ export function storeDashboardData(
     stores: ownStores, articles: ownArticles,
     orders: [...ownOrders].sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0)),
     statusCounts, inventoryUnits, inventoryCost, inventoryRetail, deliveredCount, productSales,
-    freightBilled, driverPayments, storePayable, storePaid, storePending: Math.max(0, storePayable - storePaid),
+    freightBilled, driverPayments, storePayable, storePaid, storePending,
     productCosts, expenses: expensesTotal, netProfit: netBeforeExpenses - expensesTotal,
     reviewCount, missingCostCount,
   };
