@@ -99,6 +99,17 @@ service cloud.firestore {
       allow create, update, delete: if isRegisteredUser();
     }
 
+    // The homepage can show selected products to every visitor. Only admins
+    // can see or change the advertising fees kept in the private placement.
+    match /featured_public/{placementId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /featured_placements/{placementId} {
+      allow read, write: if isAdmin();
+    }
+
     // Deliveries & Logistics
     match /deliveries/{deliveryId} {
       allow get: if true;
@@ -162,6 +173,8 @@ service cloud.firestore {
       allow read, write: if isRegisteredUser()
         && legacyCollection != 'stores'
         && legacyCollection != 'articles'
+        && legacyCollection != 'featured_public'
+        && legacyCollection != 'featured_placements'
         && legacyCollection != 'deliveries'
         && legacyCollection != 'transactions'
         && legacyCollection != 'carrier_webhook_credentials'
