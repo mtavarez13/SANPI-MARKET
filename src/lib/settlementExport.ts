@@ -10,6 +10,8 @@ const records = (rows: ReconciledSale[]) => rows.map(row => ({
   'Comisión RD$': row.commissionAmount,
   'Pimdrop RD$': row.dropshipperAmount,
   'A tienda RD$': row.storePayable,
+  'Gasto descontado RD$': row.delivery.storeExpenseDeducted || 0,
+  'Pago neto RD$': row.delivery.storePaidAt ? row.delivery.storePaidAmount ?? row.storePayable : '',
   'Pago tienda': row.delivery.storePaidAt ? 'Pagado' : 'Pendiente',
   'Referencia de pago': row.delivery.storePaymentReference || '',
   'Transacción vinculada': row.transaction?.id || 'Falta transacción histórica',
@@ -37,7 +39,7 @@ export async function exportSettlementsPdf(rows: ReconciledSale[]) {
   let y = 37;
   const header = () => {
     pdf.setFont('helvetica', 'bold');
-    pdf.text('Guía', 14, y); pdf.text('Tienda', 76, y); pdf.text('Venta', 145, y); pdf.text('Comisión', 178, y); pdf.text('A tienda', 215, y); pdf.text('Estado', 253, y);
+    pdf.text('Guía', 14, y); pdf.text('Tienda', 76, y); pdf.text('Venta', 142, y); pdf.text('Comisión', 176, y); pdf.text('Gasto', 213, y); pdf.text('Neto', 245, y); pdf.text('Estado', 273, y);
     pdf.line(14, y + 2, 282, y + 2);
     y += 9;
     pdf.setFont('helvetica', 'normal');
@@ -47,10 +49,11 @@ export async function exportSettlementsPdf(rows: ReconciledSale[]) {
     if (y > 190) { pdf.addPage(); y = 16; header(); }
     pdf.text((row.delivery.trackingNumber || '').slice(0, 31), 14, y);
     pdf.text((row.store?.name || row.delivery.storeId).slice(0, 29), 76, y);
-    pdf.text(money(row.productAmount), 145, y);
-    pdf.text(row.hasConfirmedCommission ? money(row.commissionAmount) : 'Sin confirmar', 178, y);
-    pdf.text(money(row.storePayable), 215, y);
-    pdf.text(row.delivery.storePaidAt ? 'Pagado' : 'Pendiente', 253, y);
+    pdf.text(money(row.productAmount), 142, y);
+    pdf.text(row.hasConfirmedCommission ? money(row.commissionAmount) : 'Sin confirmar', 176, y);
+    pdf.text(money(row.delivery.storeExpenseDeducted || 0), 213, y);
+    pdf.text(money(row.delivery.storePaidAt ? row.delivery.storePaidAmount ?? row.storePayable : row.storePayable), 245, y);
+    pdf.text(row.delivery.storePaidAt ? 'Pagado' : 'Pendiente', 273, y);
     y += 8;
   }
   pdf.save(`sanpi-liquidaciones-${new Date().toISOString().slice(0, 10)}.pdf`);

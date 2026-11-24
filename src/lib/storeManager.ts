@@ -21,6 +21,8 @@ import { INITIAL_ARTICLES, INITIAL_STORES, INITIAL_SUBSCRIPTIONS, INITIAL_LANDIN
 import { DEFAULT_SITE_THEME_CONFIG, DEFAULT_BANK_ACCOUNTS } from '../data/siteThemePresets';
 import { speakSanpi } from './audioTTS';
 import { initialDeliveryStatus, normalizeDeliveryStatus, totalToCollect, validateDeliveryTransition } from './deliveryWorkflow';
+import { reconcileSales } from './accountingReconciliation';
+import { allocateStoreExpenses } from './financialAudit';
 import { carrierGuideFor, matchesDeliveryGuide } from './trackingAliases';
 import { createCodTrackingNumber } from './trackingNumber';
 import { uniqueLogisticsProviders } from './logisticsProviders';
@@ -1303,6 +1305,9 @@ export class SanpiStoreManager {
     if (!delivery || !actor || actor.isAnonymous || actor.uid !== paidBy) throw new Error('Sesión no válida.');
     if (!reference.trim() || !Number.isFinite(paidAmount) || paidAmount <= 0) throw new Error('Monto o referencia inválidos.');
     if (normalizeDeliveryStatus(delivery.status) !== 'entregado') throw new Error('Solo se liquidan entregas completadas.');
+    if (kind === 'store' && this.expenses.some(expense => expense.storeId === delivery.storeId && expense.deductFromStoreSettlement && !expense.settledAt)) {
+      throw new Error('Hay gastos pendientes de deducir. Usa la liquidación conjunta de Contabilidad.');
+    }
     const guideAliases = [delivery.trackingNumber, delivery.externalOrderId, delivery.id]
       .filter(Boolean).map(value => String(value).trim().toLowerCase());
     const linked = kind === 'store' ? this.transactions.find(item =>
@@ -1331,6 +1336,70 @@ export class SanpiStoreManager {
     if (kind === 'store' && linked) Object.assign(linked, { storePaidAt: paidAt, storePaidAmount: paidAmount, storePaymentReference: reference.trim() });
     this.saveToLocalStorage();
     this.notify();
+  }
+
+  /** Atomically settles a store batch and its approved manual deductions. No money is transferred here. */
+  public async recordStoreBatchSettlement(storeId: string, deliveryIds: string[], expenseIds: string[], paidBy: string, reference: string) {
+    const actor = auth.currentUser;
+    if (!actor || actor.isAnonymous || actor.uid !== paidBy || !storeId || !reference.trim()) throw new Error('Sesión o referencia no válida.');
+    if (!deliveryIds.length || deliveryIds.length > 50 || expenseIds.length > 100 || new Set(deliveryIds).size !== deliveryIds.length || new Set(expenseIds).size !== expenseIds.length) {
+      throw new Error('Selecciona entre 1 y 50 guías diferentes.');
+    }
+    const pendingExpenses = this.expenses.filter(expense => expense.storeId === storeId && expense.deductFromStoreSettlement && !expense.settledAt);
+    if (pendingExpenses.length !== expenseIds.length || pendingExpenses.some(expense => !expenseIds.includes(expense.id))) {
+      throw new Error('La selección de gastos cambió. Actualiza el balance.');
+    }
+    const settlementId = crypto.randomUUID();
+    const paidAt = new Date().toISOString();
+    const result = await runTransaction(db, async transaction => {
+      const deliveryDocs = [];
+      for (const id of deliveryIds) {
+        const ref = doc(db, 'deliveries', id);
+        const snapshot = await transaction.get(ref);
+        if (!snapshot.exists()) throw new Error(`La guía ${id} no existe.`);
+        const live = snapshot.data() as Delivery;
+        if (live.storeId !== storeId || normalizeDeliveryStatus(live.status) !== 'entregado' || live.storePaidAt) throw new Error(`La guía ${id} ya no está pendiente de liquidar.`);
+        deliveryDocs.push({ ref, live });
+      }
+      const linkedDocs = [];
+      for (const item of deliveryDocs) {
+        const aliases = [item.live.trackingNumber, item.live.externalOrderId, item.live.id].filter(Boolean).map(value => String(value).trim().toLowerCase());
+        const linked = this.transactions.find(candidate => candidate.storeId === storeId && aliases.includes(String(candidate.trackingNumber || '').trim().toLowerCase()));
+        const ref = linked ? doc(db, 'transactions', linked.id) : null;
+        const snapshot = ref ? await transaction.get(ref) : null;
+        linkedDocs.push({ ref, linked: snapshot?.exists() ? snapshot.data() as Transaction : undefined });
+      }
+      const expenseDocs = [];
+      for (const id of expenseIds) {
+        const ref = doc(db, 'expenses', id);
+        const snapshot = await transaction.get(ref);
+        if (!snapshot.exists()) throw new Error('Un gasto ya no existe.');
+        const live = snapshot.data() as Expense;
+        if (live.storeId !== storeId || !live.deductFromStoreSettlement || live.settledAt || !Number.isFinite(live.amount) || live.amount <= 0) throw new Error('Un gasto cambió o ya fue aplicado.');
+        expenseDocs.push({ ref, live });
+      }
+      const payables = deliveryDocs.map((item, index) => reconcileSales([item.live], linkedDocs[index].linked ? [linkedDocs[index].linked!] : [], this.stores)[0].storePayable);
+      const expenseTotal = expenseDocs.reduce((total, item) => total + item.live.amount, 0);
+      const allocations = allocateStoreExpenses(payables, expenseTotal);
+      deliveryDocs.forEach((item, index) => {
+        const allocation = allocations[index];
+        const fields = { storePaidAt: paidAt, storePaidBy: paidBy, storePaidAmount: allocation.paid, storeExpenseDeducted: allocation.deducted, storeSettlementId: settlementId, storePaymentReference: reference.trim() };
+        transaction.update(item.ref, fields);
+        if (linkedDocs[index].ref && linkedDocs[index].linked) transaction.update(linkedDocs[index].ref!, { storePaidAt: paidAt, storePaidAmount: allocation.paid, storePaymentReference: reference.trim() });
+      });
+      expenseDocs.forEach(item => transaction.update(item.ref, { settledAt: paidAt, settlementReference: reference.trim(), settlementGroupId: settlementId }));
+      return { allocations, expenseTotal };
+    });
+    result.allocations.forEach((allocation, index) => {
+      const delivery = this.deliveries.find(item => item.id === deliveryIds[index]);
+      if (delivery) Object.assign(delivery, { storePaidAt: paidAt, storePaidBy: paidBy, storePaidAmount: allocation.paid, storeExpenseDeducted: allocation.deducted, storeSettlementId: settlementId, storePaymentReference: reference.trim() });
+      const linked = this.transactions.find(item => item.storeId === storeId && item.trackingNumber === delivery?.trackingNumber);
+      if (linked) Object.assign(linked, { storePaidAt: paidAt, storePaidAmount: allocation.paid, storePaymentReference: reference.trim() });
+    });
+    expenseIds.forEach(id => { const expense = this.expenses.find(item => item.id === id); if (expense) Object.assign(expense, { settledAt: paidAt, settlementReference: reference.trim(), settlementGroupId: settlementId }); });
+    this.saveToLocalStorage();
+    this.notify();
+    return { count: deliveryIds.length, gross: result.allocations.reduce((total, item) => total + item.gross, 0), expenses: result.expenseTotal, paid: result.allocations.reduce((total, item) => total + item.paid, 0) };
   }
 
   /** Find a delivery by Sanpi, order, or carrier guide and return current status. */
@@ -1568,12 +1637,14 @@ export class SanpiStoreManager {
       userName?: string;
       userRole?: Expense['userRole'];
       storeId?: string;
+      financeScope?: Expense['financeScope'];
+      deductFromStoreSettlement?: boolean;
       reference?: string;
       notes?: string;
       date?: string;
     }
   ) {
-    const id = `exp_${Date.now()}`;
+    const id = `exp_${crypto.randomUUID()}`;
     const today = extra?.date || new Date().toISOString().split('T')[0];
     const newExp: Expense = {
       id,
@@ -1587,6 +1658,8 @@ export class SanpiStoreManager {
       userName: extra?.userName,
       userRole: extra?.userRole,
       storeId: extra?.storeId,
+      financeScope: extra?.financeScope,
+      deductFromStoreSettlement: extra?.deductFromStoreSettlement,
       reference: extra?.reference,
       notes: extra?.notes
     };

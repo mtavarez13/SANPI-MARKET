@@ -432,6 +432,8 @@ export interface Delivery {
   storePaidAt?: string;
   storePaidBy?: string;
   storePaidAmount?: number;
+  storeExpenseDeducted?: number;
+  storeSettlementId?: string;
   storePaymentReference?: string;
   driverPaidAt?: string;
   driverPaidBy?: string;
@@ -586,6 +588,11 @@ export interface Expense {
   userName?: string;
   userRole?: 'customer' | 'dropshipper' | 'partner' | 'supplier' | 'carrier' | 'admin';
   storeId?: string;
+  financeScope?: 'general' | 'logistics' | 'marketplace';
+  deductFromStoreSettlement?: boolean;
+  settledAt?: string;
+  settlementReference?: string;
+  settlementGroupId?: string;
   reference?: string;
   notes?: string;
 }

@@ -82,7 +82,7 @@ service cloud.firestore {
     }
 
     function settlementFields() {
-      return ['storePaidAt', 'storePaidBy', 'storePaidAmount', 'storePaymentReference',
+      return ['storePaidAt', 'storePaidBy', 'storePaidAmount', 'storeExpenseDeducted', 'storeSettlementId', 'storePaymentReference',
         'driverPaidAt', 'driverPaidBy', 'driverPaidAmount', 'driverPaymentReference'];
     }
 
@@ -146,6 +146,28 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
+    // Personal accounting data is isolated by the authenticated owner.
+    match /accounting_categories/{entryId} {
+      allow read, delete: if isAdmin() || isOwner(resource.data.ownerId);
+      allow create: if isAdmin() || isOwner(request.resource.data.ownerId);
+      allow update: if (isAdmin() || isOwner(resource.data.ownerId))
+        && request.resource.data.ownerId == resource.data.ownerId;
+    }
+
+    match /accounting_incomes/{entryId} {
+      allow read, delete: if isAdmin() || isOwner(resource.data.ownerId);
+      allow create: if isAdmin() || isOwner(request.resource.data.ownerId);
+      allow update: if (isAdmin() || isOwner(resource.data.ownerId))
+        && request.resource.data.ownerId == resource.data.ownerId;
+    }
+
+    match /accounting_user_expenses/{entryId} {
+      allow read, delete: if isAdmin() || isOwner(resource.data.userId);
+      allow create: if isAdmin() || isOwner(request.resource.data.userId);
+      allow update: if (isAdmin() || isOwner(resource.data.userId))
+        && request.resource.data.userId == resource.data.userId;
+    }
+
     // User Profiles
     match /users/{userId} {
       allow read: if isRegisteredUser();
@@ -180,6 +202,9 @@ service cloud.firestore {
         && legacyCollection != 'carrier_webhook_credentials'
         && legacyCollection != 'marketplace_subscriptions'
         && legacyCollection != 'expenses'
+        && legacyCollection != 'accounting_categories'
+        && legacyCollection != 'accounting_incomes'
+        && legacyCollection != 'accounting_user_expenses'
         && legacyCollection != 'users'
         && legacyCollection != 'marketplace_users'
         && legacyCollection != 'user_role_assignments';
