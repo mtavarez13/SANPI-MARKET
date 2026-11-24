@@ -129,7 +129,9 @@ export const AccountingWorkspace: React.FC<Props> = ({ currentUser, stores, arti
     try { allocateStoreExpenses(storeBatchRows.map(row => row.storePayable), storeBatchExpenseTotal); }
     catch { setMessage('Los gastos pendientes superan el importe de estas guías.'); return; }
     const storeName = stores.find(store => store.id === settlementStore)?.name || settlementStore;
-    if (!window.confirm(`Registrar liquidación ya pagada a ${storeName}: ${storeBatchRows.length} guías, ${money(storeBatchGross)} bruto, ${money(storeBatchExpenseTotal)} en gastos y ${money(storeBatchNet)} pagados. Referencia: ${reference}`)) return;
+    const unconfirmed = storeBatchRows.filter(row => !row.hasConfirmedCommission).length;
+    const warning = unconfirmed ? `\nATENCIÓN: ${unconfirmed} guía(s) sin comisión confirmada se calcularán con comisión RD$ 0. Verifica el monto antes de continuar.` : '';
+    if (!window.confirm(`Registrar liquidación ya pagada a ${storeName}: ${storeBatchRows.length} guías, ${money(storeBatchGross)} bruto, ${money(storeBatchExpenseTotal)} en gastos y ${money(storeBatchNet)} pagados. Referencia: ${reference}${warning}`)) return;
     setBusy(true);
     try {
       const result = await sanpiManager.recordStoreBatchSettlement(settlementStore, storeBatchRows.map(row => row.delivery.id), storeBatchExpenses.map(expense => expense.id), currentUser.uid, reference);
